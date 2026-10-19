@@ -551,6 +551,28 @@ function wishSection() {
   ${bought ? `<div class="hint">${bought} ${bought === 1 ? 'Wunsch' : 'Wünsch'} scho erfüllt.</div>` : ''}`;
 }
 
+/* ---------- backup ---------- */
+// data only lives on this phone, so nudge a file backup once a week
+const backupAge = () => S.lastBackup ? diffDays(parse(S.lastBackup), today()) : null;
+const backupDue = () => !S.demo && S.entries.length > 0 && (backupAge() === null || backupAge() >= 7) && S.backupSnooze !== ymd(today());
+const backupLabel = () => backupAge() === null ? 'no nie' : backupAge() === 0 ? 'hüt' : backupAge() === 1 ? 'geschter' : `vor ${backupAge()} Täg`;
+async function saveBackupFile() {
+  const name = `batzli-sicherig-${ymd(today())}.json`, json = JSON.stringify({ ...S, lastBackup: ymd(today()), backupSnooze: undefined }, null, 1);
+  const file = new File([json], name, { type: 'application/json' });
+  try {
+    if (navigator.canShare?.({ files: [file] })) await navigator.share({ files: [file] });
+    else { const a = document.createElement('a'); a.href = URL.createObjectURL(file); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000); }
+  } catch (e) { if (e?.name === 'AbortError') return; toast('Sichere hät nöd klappt'); return; }
+  S.lastBackup = ymd(today()); save(); UI.sheet = null; render(); toast('Gsicheret. Starch!');
+}
+function restoreFrom(text) {
+  try {
+    const d = JSON.parse(text);
+    if (!d || !Array.isArray(d.cats) || !Array.isArray(d.entries)) throw 0;
+    S = { checkins: [], ...d }; commit('Date wiederhärgstellt');
+  } catch { toast('Das isch kei gültigi Sicherig'); }
+}
+
 /* ---------- month-end bonus ---------- */
 const monthKey = M => ymd(M.start);
 // the most recent finished budget month that still waits for a decision
@@ -661,6 +683,8 @@ function viewHome() {
   const over = C.todayLeft < 0;
   return `
   ${(() => { const b = pendingBonus(); return b ? bonusCard(b) : ''; })()}
+  ${backupDue() ? `<section class="card row" style="gap:12px;flex-wrap:wrap"><span style="color:var(--accent)">${ic('download')}</span><span class="grow"><b>Zyt für dini Sicherig</b><br><small class="sub">Dini Date sind nur uf däm Handy. Letschti Sicherig: ${backupLabel()}.</small></span>
+    <span class="row" style="width:100%;gap:8px"><button class="btn ghost" style="padding:11px;font-size:.95rem;border:2px solid var(--line)" data-act="backuplater">Spöter</button><button class="btn" style="padding:11px;font-size:.95rem" data-act="savefile">Jetzt sichere</button></span></section>` : ''}
   ${S.demo ? `<button class="demo-banner" data-act="setup">${ic('sparkle')}<span class="grow"><b>Das sind Biispiil-Date.</b> Tipp do, zum dini eigete Zahle iirichte.</span>${ic('chevR', 'chev')}</button>` : ''}
   <header class="top">
     <div><h1>Hoi ${esc(S.name || 'du')}</h1><div class="sub">${WD[t.getDay()]}, ${t.getDate()}. ${MON[t.getMonth()]}</div></div>
@@ -906,7 +930,7 @@ function viewProfile() {
   </section>
   <div class="section-label">Date</div>
   <section class="card flush">
-    <button class="setting" data-act="export">${ic('download')} Date sichere<span class="val"></span>${ic('chevR', 'chev')}</button>
+    <button class="setting" data-act="export">${ic('download')} Date sichere<span class="val">${backupLabel()}</span>${ic('chevR', 'chev')}</button>
     <button class="setting" data-act="import">${ic('upload')} Date wiederhärstelle<span class="val"></span>${ic('chevR', 'chev')}</button>
     <button class="setting" data-act="setup">${ic('sparkle')} Neu iirichte<span class="val"></span>${ic('chevR', 'chev')}</button>
   </section>
@@ -970,8 +994,17 @@ function sheetSimple(s) {
     <div class="hint">Alles, wo du i Kategorie vo de Art «Spare» iiträgsch, zählt automatisch dezue.</div>
     <button class="btn" data-act="savegoal">Speichere</button>`);
   if (s.kind === 'badge') { const C = compute(), st = streakInfo(), xi = xpInfo(); const b = badgeList(C, st, xi)[s.i]; return sheetWrap(b.name, `<div class="badge ${b.got ? 'got' : ''}" style="font-size:1rem"><div class="medal" style="width:96px;height:96px">${ic(b.icon)}</div></div><p style="text-align:center;margin:0">${b.got ? 'Erreicht, bravo!' : b.how}</p><button class="btn ghost" data-act="close">Okay</button>`); }
-  if (s.kind === 'export') return sheetWrap('Date sichere', `<p class="hint" style="margin:0">Kopier dä Text und speicher en z.B. i dini Notize. Mit «Date wiederhärstelle» chasch en spöter wieder iisetze.</p><textarea id="x-json" class="input" readonly>${esc(JSON.stringify(S))}</textarea><button class="btn" data-act="copyexport">Kopiere</button>`);
-  if (s.kind === 'import') return sheetWrap('Date wiederhärstelle', `<p class="hint" style="margin:0">Setz de gsicherti Text ii. Dini jetzige Date werded ersetzt.</p><textarea id="x-json" class="input" placeholder="{ … }"></textarea><button class="btn" data-act="doimport">Wiederhärstelle</button>`);
+  if (s.kind === 'export') return sheetWrap('Date sichere', `
+    <p style="margin:0">Batzli speicheret alles nur uf däm Handy. Mit ere Sicherig chasch dini Date wieder zrugghole, au uf eme neue Handy.</p>
+    <button class="btn" data-act="savefile">${ic('download').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Als Datei sichere</button>
+    <div class="hint">Im nächschte Fenster «In Dateien sichern» wähle und dänn iCloud Drive. Letschti Sicherig: ${backupLabel()}.</div>
+    <details><summary class="sub" style="cursor:pointer">Lieber als Text kopiere</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px"><textarea id="x-json" class="input" readonly>${esc(JSON.stringify(S))}</textarea><button class="btn ghost" data-act="copyexport">Kopiere</button></div></details>`);
+  if (s.kind === 'import') return sheetWrap('Date wiederhärstelle', `
+    <p class="hint" style="margin:0">Wähl dini Sicherigs-Datei (batzli-sicherig-….json). Dini jetzige Date werded ersetzt.</p>
+    <label class="btn" style="text-align:center">${ic('upload').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Datei uswähle<input id="x-file" type="file" accept=".json,application/json,text/plain" hidden></label>
+    <details><summary class="sub" style="cursor:pointer">Lieber Text iisetze</summary>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px"><textarea id="x-json" class="input" placeholder="{ … }"></textarea><button class="btn ghost" data-act="doimport">Wiederhärstelle</button></div></details>`);
   if (s.kind === 'bonus') return sheetWrap('In Tresor lege', `<label class="field"><span>Betrag in CHF (so viel, wie du würkli uf s Sparkonto tuesch)</span><input id="b-val" class="input amount-input num" inputmode="decimal" value="${s.left}"></label><button class="btn" data-act="dobonus">Ab in Tresor</button>`);
   if (s.kind === 'wish') {
     const w = s.id && wishes().find(x => x.id === s.id), d = s.draft;
@@ -1182,6 +1215,10 @@ const PRESETS = [
   { name: 'Spare', icon: 'piggy', color: '#33B872', kind: 'spar', period: 'month', limit: 500 },
 ];
 
+document.addEventListener('change', ev => {
+  if (ev.target.id !== 'x-file' || !ev.target.files?.[0]) return;
+  ev.target.files[0].text().then(restoreFrom, () => toast('Datei nöd lesbar'));
+});
 document.addEventListener('click', ev => {
   const el = ev.target.closest('[data-act]');
   if (!el) return;
@@ -1341,14 +1378,9 @@ document.addEventListener('click', ev => {
       if (!navigator.clipboard) { ta.focus(); ta.select(); }
       break;
     }
-    case 'doimport': {
-      try {
-        const d = JSON.parse(val('x-json'));
-        if (!d || !Array.isArray(d.cats) || !Array.isArray(d.entries)) throw 0;
-        S = { checkins: [], ...d }; commit('Date wiederhärgstellt');
-      } catch { toast('Dä Text isch kei gültigi Sicherig'); }
-      break;
-    }
+    case 'doimport': restoreFrom(val('x-json')); break;
+    case 'savefile': saveBackupFile(); break;
+    case 'backuplater': S.backupSnooze = ymd(today()); save(); render(); break;
     case 'wipe-confirm': break;
     case 'dowipe': try { localStorage.removeItem(KEY); } catch {} S = blankState({}); UI.tab = 'home'; commit('Alles glöscht'); UI.sheet = { type: 'setup', draft: { name: '', income: '', startDay: 1, goal: '', target: '', base: '' } }; renderSheet(); break;
     case 'setup': UI.sheet = { type: 'setup', draft: { name: S.demo ? '' : S.name, income: S.demo ? '' : S.income, startDay: S.startDay || 1, goal: S.demo ? '' : S.goal?.name || '', target: S.demo ? '' : S.goal?.target || '', base: S.demo ? '' : S.goal?.base || '' } }; renderSheet(); break;
