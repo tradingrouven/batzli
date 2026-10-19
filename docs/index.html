@@ -228,6 +228,7 @@ h2 { font-family: var(--f-display); font-weight: 900; font-size: 1.45rem; margin
   display: flex; flex-direction: column; gap: 14px; animation: up .24s cubic-bezier(.2, .8, .2, 1); overflow-x: hidden;
 }
 .grab { width: 44px; height: 5px; border-radius: 9px; background: var(--line); margin: 0 auto 2px; }
+.sheet > * { flex-shrink: 0; } /* long sheets scroll instead of squashing cards */
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .icon-btn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: var(--card); display: grid; place-items: center; }
 .icon-btn svg { width: 20px; height: 20px; }
@@ -307,6 +308,7 @@ const P = {
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
   check: '<path d="m5 12.5 4.5 4.5L19 7"/>',
   safe: '<rect x="3" y="4" width="18" height="16" rx="2.5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 8.8V7.5M12 16.5v-1.3M8.8 12H7.5M16.5 12h-1.3"/>',
+  repeat: '<path d="M4 11V9a3 3 0 0 1 3-3h12M16 3l3 3-3 3M20 13v2a3 3 0 0 1-3 3H5M8 21l-3-3 3-3"/>',
   calendar: '<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/>',
   target: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.8"/><circle cx="12" cy="12" r="1.2"/>',
   trophy: '<path d="M7.5 4h9v5a4.5 4.5 0 0 1-9 0z"/><path d="M7.5 6H4.5c0 3 1.3 4.5 3.3 4.8M16.5 6h3c0 3-1.3 4.5-3.3 4.8"/><path d="M12 13.5V17M8.5 20.5h7l-.8-3.5H9.3z"/>',
@@ -518,6 +520,21 @@ const dueText = due => { if (!due) return ''; const [y, m] = due.split('-').map(
 /* ---------- wishlist (48-hour rule) ---------- */
 const WAIT_H = 48;
 const wishes = () => S.wishes || (S.wishes = []);
+
+/* ---------- recurring payments ---------- */
+const recurs = () => S.recur || (S.recur = []);
+const EVERY = { week: 'jedi Wuche', month: 'jede Monet', year: 'jedes Johr' };
+// i-th due date counted from the start date; month/year clamp to the month's last day
+function occ(r, i) {
+  const a = parse(r.start);
+  if (r.every === 'week') return new Date(a.getFullYear(), a.getMonth(), a.getDate() + 7 * i);
+  const y = a.getFullYear() + (r.every === 'year' ? i : 0), m = a.getMonth() + (r.every === 'month' ? i : 0);
+  return new Date(y, m, Math.min(a.getDate(), new Date(y, m + 1, 0).getDate()));
+}
+function nextDue(r) { const t = today(); for (let i = 0; i < 3000; i++) { const d = occ(r, i); if (d > t) return d; } return null; }
+const recurMonthly = r => r.every === 'week' ? r.amount * 52 / 12 : r.every === 'year' ? r.amount / 12 : r.amount;
+// mark every due date up to today as handled, so a changed schedule or a pause doesn't backfill
+function markPast(r) { const t = today(); for (let i = 0; i < 3000; i++) { const d = occ(r, i); if (d > t) break; const k = `r-${r.id}-${ymd(d)}`; if (!S.autoDone.includes(k)) S.autoDone.push(k); } }
 const hoursLeft = w => Math.max(0, Math.ceil(WAIT_H - (Date.now() - w.ts) / 3600e3));
 const skippedTotal = () => wishes().filter(w => w.status === 'skipped').reduce((a, w) => a + w.price, 0);
 function wishSection() {
@@ -719,7 +736,7 @@ function catRow(r, opts = {}) {
     ? `Hüt ${fmt0(r.spent)} usgäh · ${fmt0(c.limit)} pro Tag`
     : `${fmt0(r.spent)} vo ${fmt0(r.limit)} CHF ${c.kind === 'var' ? (c.period === 'week' ? 'die Wuche' : 'de Monet') : ''}${c.kind === 'fix' && c.autoDay ? ` · automatisch am ${c.autoDay}.` : ''}`;
   const dayPct = c.kind === 'var' && c.period === 'day' ? Math.min(100, Math.max(0, (1 - r.left / Math.max(c.limit, 1)) * 100)) : pct;
-  return `<button class="cat" data-act="editcat" data-id="${c.id}">
+  return `<button class="cat" data-act="${opts.act || 'catd'}" data-id="${c.id}">
     <span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>
     <span class="grow">
       <span class="between"><b>${esc(c.name)}${opts.tag ? `<span class="tag">${per}</span>` : ''}</b><span class="left num">${leftTxt}</span></span>
@@ -730,17 +747,26 @@ function catRow(r, opts = {}) {
   </button>`;
 }
 
-function entryList(list) {
-  if (!list.length) return '<div class="empty">No kei Iiträg. Drück uf s Plus unde.</div>';
+function entryList(list, empty = 'No kei Iiträg. Drück uf s Plus unde.') {
+  if (!list.length) return `<div class="empty">${empty}</div>`;
   return list.map(e => {
     const c = cat(e.cat) || { name: 'Gelöscht', icon: 'dots', color: '#8A94A6', kind: 'var' };
     const sav = c.kind === 'spar';
     return `<button class="entry" data-act="editentry" data-id="${e.id}">
       <span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>
-      <span class="grow"><b>${esc(e.note || c.name)}</b>${e.auto ? '<span class="tag">automatisch</span>' : ''}<br><small>${esc(c.name)} · ${shortDate(e.date)}</small></span>
+      <span class="grow"><b>${esc(e.note || c.name)}</b>${e.rec ? '<span class="tag">wiederkehrend</span>' : e.auto ? '<span class="tag">automatisch</span>' : ''}<br><small>${esc(c.name)} · ${shortDate(e.date)}</small></span>
       <span class="amt num" style="${sav ? 'color:var(--good)' : ''}">${sav ? '+' : '−'}${fmt2(e.amount)}</span>
     </button>`;
   }).join('');
+}
+
+function recurRow(r) {
+  const c = cat(r.cat) || { name: 'Gelöscht', color: '#8A94A6' }, n = nextDue(r);
+  return `<button class="entry" data-act="editrecur" data-id="${r.id}">
+    <span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic('repeat')}</span>
+    <span class="grow"><b>${esc(r.name)}</b>${r.paused ? '<span class="tag">pausiert</span>' : ''}<br><small>${EVERY[r.every]}${r.paused || !n ? '' : ` · nächsti am ${shortDate(ymd(n))}`}</small></span>
+    <span class="amt num">${fmt2(r.amount)}</span>
+  </button>`;
 }
 
 function viewBudget() {
@@ -878,6 +904,7 @@ function viewProfile() {
   <div class="section-label">Spare</div>
   <section class="card flush">
     <button class="setting" data-act="pots">${ic('target')} Sparziel & Sonderziel<span class="val">${pots().length ? `${pots().length + 1} Ziel` : esc(S.goal?.name || '–')}</span>${ic('chevR', 'chev')}</button>
+    <button class="setting" data-act="recurs">${ic('repeat')} Wiederkehrendi Zahlige<span class="val">${recurs().length || '–'}</span>${ic('chevR', 'chev')}</button>
     <button class="setting" data-act="income">${ic('wallet')} Iikomme pro Monet<span class="val num">${chf(S.income)}</span>${ic('chevR', 'chev')}</button>
     <button class="setting" data-act="startday">${ic('calendar')} Budget-Monet startet am<span class="val">${S.startDay}.</span>${ic('chevR', 'chev')}</button>
   </section>
@@ -902,15 +929,18 @@ function sheetWrap(title, body) {
 }
 function sheetEntry(s) {
   const e = s.id ? S.entries.find(x => x.id === s.id) : null;
-  const sel = s.cat || e?.cat || S.cats.find(c => c.kind === 'var')?.id || S.cats[0]?.id;
+  const sel = s.cat || e?.cat, r = e?.rec && recurs().find(x => x.id === e.rec);
   return sheetWrap(e ? 'Iitrag bearbeite' : 'Neue Iitrag', `
     <input id="f-amount" class="input amount-input num" inputmode="decimal" placeholder="0.00" value="${e ? e.amount : (s.amount || '')}" autocomplete="off" aria-label="Betrag in CHF">
-    <div class="field"><span>Kategorie</span>
+    <div class="field"><span ${sel ? '' : 'style="color:var(--accent)"'}>${sel ? 'Kategorie' : 'Wähl e Kategorie'}</span>
       <div class="chips">${S.cats.map(c => `<button class="chip ${c.id === sel ? 'on' : ''}" data-act="pickcat" data-id="${c.id}"><span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>${esc(c.name)}</button>`).join('')}</div>
     </div>
     ${cat(sel)?.kind === 'spar' && pots().length ? `<div class="field"><span>Wohii gaht s Gäld?</span><div class="chips">${[['auto', 'Automatisch (nach %)', 'sparkle', 'var(--accent)'], ['main', esc(S.goal?.name || 'Hauptziel'), 'target', 'var(--good)'], ...pots().map(p => [p.id, esc(p.name), p.icon || 'target', p.color])].map(([k, l, i, col]) => `<button class="chip ${(s.to || e?.to || 'auto') === k ? 'on' : ''}" data-act="pickto" data-k="${k}"><span class="ico" style="color:${col}">${ic(i)}</span>${l}</button>`).join('')}</div></div>` : ''}
     <label class="field"><span>Notiz (freiwillig)</span><input id="f-note" class="input" placeholder="z.B. Migros" value="${esc(e?.note || s.note || '')}" maxlength="60"></label>
     <label class="field"><span>Datum</span><input id="f-date" class="input" type="date" value="${e?.date || s.date || ymd(today())}" max="${ymd(today())}"></label>
+    ${e ? (r ? `<button class="btn ghost" data-act="editrecur" data-id="${r.id}">${ic('repeat').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Wiederholt sich ${EVERY[r.every]} · bearbeite</button>` : '')
+    : `<div class="field"><span>Wiederhole?</span><div class="seg">${[['none', 'Eimal'], ['week', 'Wuche'], ['month', 'Monet'], ['year', 'Johr']].map(([k, l]) => `<button class="${(s.rep || 'none') === k ? 'on' : ''}" data-act="pickrep" data-k="${k}">${l}</button>`).join('')}</div>
+      ${s.rep && s.rep !== 'none' ? `<div class="hint">Batzli treit das ab jetzt ${EVERY[s.rep]} am gliiche Tag sälber ii, z.B. für es Abo.</div>` : ''}</div>`}
     <button class="btn" data-act="saveentry">${e ? 'Speichere' : 'Iitrage'}</button>
     ${e ? '' : `<button class="btn ghost" data-act="towish">${ic('gift').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Zersch uf d Wunschliste (${WAIT_H} h warte)</button>`}
     ${e ? `<button class="btn danger" data-act="delentry">${ic('trash').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Iitrag lösche</button>` : ''}`);
@@ -1001,6 +1031,45 @@ function sheetSimple(s) {
       <button class="btn" data-act="savepot">Speichere</button>
       ${s.id ? `<button class="btn danger ${s.armed ? 'armed' : ''}" data-act="delpot">${s.armed ? 'Sicher? S Gäld gaht zrugg is Hauptziel' : 'Sonderziel lösche'}</button>` : ''}`);
   }
+  if (s.kind === 'catd') {
+    const c = cat(s.id); if (!c) return '';
+    const C = compute(), row = C.rows.find(x => x.c.id === c.id), M = budgetMonth(0);
+    const all = S.entries.filter(e => e.cat === c.id).sort((a, b) => b.date.localeCompare(a.date) || b.ts - a.ts);
+    const now = all.filter(e => inRange(e, M.start, M.end)), older = all.filter(e => !inRange(e, M.start, M.end));
+    const rs = recurs().filter(r => r.cat === c.id), sav = c.kind === 'spar';
+    return sheetWrap(esc(c.name), `
+      ${row ? `<section class="card flush">${catRow(row, { tag: true, act: 'editcat' })}</section>` : ''}
+      <button class="btn" data-act="addincat" data-id="${c.id}">+ ${sav ? 'Iizahlig' : 'Usgab'} in ${esc(c.name)}</button>
+      <div class="between"><h2 style="font-size:1.15rem">Wiederkehrend</h2><button class="link" data-act="newrecur" data-id="${c.id}">+ Neu</button></div>
+      ${rs.length ? `<section class="card flush">${rs.map(recurRow).join('')}</section><div class="hint">Zäme öppe ${chf(rs.filter(r => !r.paused).reduce((t, r) => t + recurMonthly(r), 0))} pro Monet.</div>`
+        : `<div class="hint">Abos und Rächnige, wo immer wieder chömed (z.B. ChatGPT, Spotify), treit Batzli sälber ii.</div>`}
+      <div class="between"><h2 style="font-size:1.15rem">Im ${M.label}</h2><span class="sub num">${chf(now.reduce((t, e) => t + e.amount, 0))}</span></div>
+      <section class="card flush">${entryList(now, `No nüt in ${esc(c.name)} dä Monet.`)}</section>
+      ${older.length ? `<div class="between"><h2 style="font-size:1.15rem">Früecher</h2><span class="sub">${older.length}</span></div>
+        <section class="card flush">${entryList(older.slice(0, s.more ? 500 : 10))}</section>
+        ${!s.more && older.length > 10 ? '<button class="btn ghost" data-act="catmore">Alli zeige</button>' : ''}` : ''}
+      <button class="btn ghost" data-act="editcat" data-id="${c.id}">${ic('pencil').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Kategorie bearbeite</button>`);
+  }
+  if (s.kind === 'recurs') {
+    const rs = recurs(), on = rs.filter(r => !r.paused);
+    return sheetWrap('Wiederkehrendi Zahlige', `
+      ${rs.length ? `<section class="card flush">${rs.map(recurRow).join('')}</section><div class="hint">Zäme öppe ${chf(on.reduce((t, r) => t + recurMonthly(r), 0))} pro Monet. Batzli treit jedi Zahlig am fällige Tag sälber ii.</div>`
+        : '<div class="empty">No kei wiederkehrendi Zahlige. Leg z.B. dini Abos aa.</div>'}
+      <button class="add-dashed" data-act="newrecur">+ Neui wiederkehrendi Zahlig</button>`);
+  }
+  if (s.kind === 'recur') {
+    const d = s.draft;
+    return sheetWrap(s.id ? 'Wiederkehrendi Zahlig' : 'Neui wiederkehrendi Zahlig', `
+      <label class="field"><span>Name</span><input id="r-name" class="input" maxlength="30" placeholder="z.B. ChatGPT" value="${esc(d.name)}"></label>
+      <label class="field"><span>Betrag (CHF)</span><input id="r-amount" class="input num" inputmode="decimal" value="${d.amount || ''}" placeholder="0.00"></label>
+      <div class="field"><span ${d.cat ? '' : 'style="color:var(--accent)"'}>${d.cat ? 'Kategorie' : 'Wähl e Kategorie'}</span><div class="chips">${S.cats.map(c => `<button class="chip ${c.id === d.cat ? 'on' : ''}" data-act="rcat" data-id="${c.id}"><span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>${esc(c.name)}</button>`).join('')}</div></div>
+      <div class="field"><span>Wie oft?</span><div class="seg">${[['week', 'Wuche'], ['month', 'Monet'], ['year', 'Johr']].map(([k, l]) => `<button class="${d.every === k ? 'on' : ''}" data-act="revery" data-k="${k}">${l}</button>`).join('')}</div></div>
+      <label class="field"><span>${s.id ? 'Startdatum' : 'Erschti Zahlig am'}</span><input id="r-start" class="input" type="date" value="${d.start}"></label>
+      <div class="hint">Batzli treit de Betrag ${EVERY[d.every]} am gliiche Tag sälber ii.${s.id ? '' : ' Isch s Datum hüt oder früecher, chunnt de erschti Iitrag grad drii.'}</div>
+      <button class="btn" data-act="saverecur">Speichere</button>
+      ${s.id ? `<button class="btn ghost" data-act="rpause">${d.paused ? 'Wieder aktiviere' : 'Pausiere'}</button>
+        <button class="btn danger ${s.armed ? 'armed' : ''}" data-act="delrecur">${s.armed ? 'Sicher? Bisherigi Iiträg bliibed' : 'Lösche'}</button>` : ''}`);
+  }
   if (s.kind === 'wipe') return sheetWrap('Alli Date lösche', `<p style="margin:0">Das löscht alli Iiträg, Kategorie und dis Sparziel uf däm Grät. Das chasch nöd rückgängig mache.</p><button class="btn danger armed" data-act="dowipe">Ja, alles lösche</button><button class="btn ghost" data-act="close">Abbräche</button>`);
   return '';
 }
@@ -1037,6 +1106,19 @@ function autoBook() {
       added++;
     }
   });
+  recurs().forEach(r => {
+    if (r.paused || !(r.amount > 0) || !cat(r.cat)) return;
+    const isSpar = cat(r.cat).kind === 'spar';
+    for (let i = 0; i < 3000; i++) {
+      const due = occ(r, i);
+      if (due > t) break;
+      const key = `r-${r.id}-${ymd(due)}`;
+      if (S.autoDone.includes(key)) continue;
+      S.autoDone.push(key);
+      S.entries.push({ id: uid(), amount: r.amount, cat: r.cat, note: r.name, date: ymd(due), ts: +due + 8 * 3600e3, auto: true, rec: r.id, ...(isSpar ? { to: 'auto', split: splitFor(r.amount) } : {}) });
+      added++;
+    }
+  });
   if (added) save();
   return added;
 }
@@ -1052,6 +1134,7 @@ function renderSheet() {
   const s = UI.sheet;
   if (!s) { layer.innerHTML = UI.toast ? `<div class="toast">${esc(UI.toast)}</div>` : ''; document.body.style.overflow = ''; return; }
   const html = s.type === 'entry' ? sheetEntry(s) : s.type === 'cat' ? sheetCat(s) : s.type === 'setup' ? sheetSetup(s) : sheetSimple(s);
+  if (!html) { UI.sheet = null; renderSheet(); return; }
   layer.innerHTML = html + (UI.toast ? `<div class="toast">${esc(UI.toast)}</div>` : '');
   document.body.style.overflow = 'hidden';
 }
@@ -1063,7 +1146,10 @@ function toast(msg) {
 }
 const num = id => { const v = parseFloat(String(document.getElementById(id)?.value || '').replace(/[’' ]/g, '').replace(',', '.')); return isFinite(v) ? v : NaN; };
 const val = id => (document.getElementById(id)?.value || '').trim();
-function commit(msg) { save(); UI.sheet = null; render(); if (msg) toast(msg); }
+// sheets opened from a category detail or list go back there after save or close
+function commit(msg) { save(); UI.sheet = UI.sheet?.back || null; render(); if (msg) toast(msg); }
+const backable = () => (UI.sheet && ['catd', 'recurs'].includes(UI.sheet.kind) ? UI.sheet : null);
+function keepRecurDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('r-name'); const a = num('r-amount'); d.amount = isNaN(a) ? '' : a; d.start = val('r-start') || d.start; }
 // keep typed values when a sheet re-renders after a chip tap
 function keepCatDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('c-name'); if (document.getElementById('c-auto')) d.autoDay = Number(val('c-auto')) || 0; const l = num('c-limit'); d.limit = isNaN(l) ? '' : l; }
 function keepPotDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('p-name'); d.target = num('p-target') || ''; d.base = num('p-base') || ''; d.due = val('p-due'); const pc = num('p-pct'); d.pct = isNaN(pc) ? 0 : pc; }
@@ -1084,25 +1170,58 @@ document.addEventListener('click', ev => {
   const el = ev.target.closest('[data-act]');
   if (!el) return;
   const a = el.dataset.act;
-  if (a === 'close-scrim') { if (ev.target === el) { UI.sheet = null; renderSheet(); } return; }
+  if (a === 'close-scrim') { if (ev.target === el) { UI.sheet = UI.sheet?.back || null; renderSheet(); } return; }
   switch (a) {
     case 'tab': UI.tab = el.dataset.tab; UI.monthOff = 0; UI.showAll = false; render(); window.scrollTo(0, 0); break;
-    case 'close': UI.sheet = null; renderSheet(); break;
+    case 'close': UI.sheet = UI.sheet?.back || null; renderSheet(); break;
     case 'add': UI.sheet = { type: 'entry' }; renderSheet(); setTimeout(() => document.getElementById('f-amount')?.focus(), 60); break;
-    case 'editentry': UI.sheet = { type: 'entry', id: el.dataset.id }; renderSheet(); break;
+    case 'editentry': UI.sheet = { type: 'entry', id: el.dataset.id, back: backable() }; renderSheet(); break;
+    case 'pickrep': keepEntryDraft(); UI.sheet.rep = el.dataset.k; renderSheet(); break;
+    case 'catd': UI.sheet = { type: 'simple', kind: 'catd', id: el.dataset.id }; renderSheet(); break;
+    case 'catmore': UI.sheet.more = true; renderSheet(); break;
+    case 'addincat': UI.sheet = { type: 'entry', cat: el.dataset.id, back: backable() }; renderSheet(); setTimeout(() => document.getElementById('f-amount')?.focus(), 60); break;
+    case 'recurs': UI.sheet = { type: 'simple', kind: 'recurs' }; renderSheet(); break;
+    case 'newrecur': UI.sheet = { type: 'simple', kind: 'recur', back: backable(), draft: { name: '', amount: '', cat: el.dataset.id || '', every: 'month', start: ymd(today()), paused: false } }; renderSheet(); break;
+    case 'editrecur': { const r = recurs().find(x => x.id === el.dataset.id); if (!r) break; UI.sheet = { type: 'simple', kind: 'recur', id: r.id, back: backable(), draft: { ...r } }; renderSheet(); break; }
+    case 'rcat': keepRecurDraft(); UI.sheet.draft.cat = el.dataset.id; renderSheet(); break;
+    case 'revery': keepRecurDraft(); UI.sheet.draft.every = el.dataset.k; renderSheet(); break;
+    case 'rpause': keepRecurDraft(); UI.sheet.draft.paused = !UI.sheet.draft.paused; renderSheet(); break;
+    case 'saverecur': {
+      keepRecurDraft(); const d = UI.sheet.draft;
+      if (!d.name) { toast('Bitte en Name iigä'); break; }
+      if (!(d.amount > 0)) { toast('Bitte en Betrag iigä'); break; }
+      if (!cat(d.cat)) { toast('Wähl bitte e Kategorie'); break; }
+      S.autoDone = S.autoDone || [];
+      const rec = { name: d.name, amount: Math.round(d.amount * 100) / 100, cat: d.cat, every: d.every, start: d.start || ymd(today()), paused: !!d.paused };
+      const r = UI.sheet.id && recurs().find(x => x.id === UI.sheet.id);
+      if (r) { const moved = r.start !== rec.start || r.every !== rec.every || (r.paused && !rec.paused); Object.assign(r, rec); if (moved) markPast(r); }
+      else recurs().push({ id: uid(), ...rec });
+      commit(rec.paused ? 'Pausiert' : 'Gspeicheret'); break;
+    }
+    case 'delrecur':
+      if (!UI.sheet.armed) { keepRecurDraft(); UI.sheet.armed = true; renderSheet(); break; }
+      S.recur = recurs().filter(r => r.id !== UI.sheet.id); commit('Glöscht'); break;
     case 'pickcat': keepEntryDraft(); UI.sheet.cat = el.dataset.id; renderSheet(); break;
     case 'saveentry': {
       const amt = num('f-amount');
       if (!(amt > 0)) { toast('Bitte en Betrag iigä'); break; }
-      const s = UI.sheet, c = s.cat || S.entries.find(x => x.id === s.id)?.cat || S.cats.find(x => x.kind === 'var')?.id || S.cats[0]?.id;
-      if (!c) { toast('Leg zersch e Kategorie aa'); break; }
+      const s = UI.sheet, c = s.cat || S.entries.find(x => x.id === s.id)?.cat;
+      if (!S.cats.length) { toast('Leg zersch e Kategorie aa'); break; }
+      if (!cat(c)) { toast('Wähl bitte e Kategorie'); break; }
       const date = val('f-date') || ymd(today());
       const a2 = Math.round(amt * 100) / 100, isSpar = cat(c)?.kind === 'spar';
       const to = isSpar ? (s.to || S.entries.find(x => x.id === s.id)?.to || 'auto') : undefined;
       const extra = isSpar ? { to, split: splitFor(a2, to) } : { to: undefined, split: undefined };
       if (s.id) Object.assign(S.entries.find(x => x.id === s.id), { amount: a2, cat: c, note: val('f-note'), date, ...extra });
-      else S.entries.push({ id: uid(), amount: a2, cat: c, note: val('f-note'), date, ts: Date.now(), ...extra });
-      commit(s.id ? 'Gspeicheret' : (cat(c)?.kind === 'spar' ? 'Ab in Tresor!' : 'Iitreit'));
+      else {
+        const ent = { id: uid(), amount: a2, cat: c, note: val('f-note'), date, ts: Date.now(), ...extra };
+        if (s.rep && s.rep !== 'none') { // this entry is the first payment; later ones get booked by autoBook
+          const r = { id: uid(), name: ent.note || cat(c).name, amount: a2, cat: c, every: s.rep, start: date, paused: false };
+          recurs().push(r); ent.rec = r.id; S.autoDone = S.autoDone || []; S.autoDone.push(`r-${r.id}-${date}`);
+        }
+        S.entries.push(ent);
+      }
+      commit(s.id ? 'Gspeicheret' : s.rep && s.rep !== 'none' ? `Iitreit · wiederholt sich ${EVERY[s.rep]}` : (cat(c)?.kind === 'spar' ? 'Ab in Tresor!' : 'Iitreit'));
       break;
     }
     case 'delentry': S.entries = S.entries.filter(x => x.id !== UI.sheet.id); commit('Glöscht'); break;
@@ -1162,7 +1281,7 @@ document.addEventListener('click', ev => {
     case 'showall': UI.showAll = true; render(); break;
     case 'range': UI.range = el.dataset.r; render(); break;
     case 'newcat': UI.sheet = { type: 'cat', draft: { name: '', icon: 'dots', color: COLORS[S.cats.length % COLORS.length], kind: 'var', period: 'month', limit: '' } }; renderSheet(); break;
-    case 'editcat': { const c = cat(el.dataset.id); UI.sheet = { type: 'cat', id: c.id, draft: { ...c } }; renderSheet(); break; }
+    case 'editcat': { const c = cat(el.dataset.id); UI.sheet = { type: 'cat', id: c.id, draft: { ...c }, back: backable() }; renderSheet(); break; }
     case 'ckind': keepCatDraft(); UI.sheet.draft.kind = el.dataset.k; if (el.dataset.k !== 'var') UI.sheet.draft.period = 'month'; renderSheet(); break;
     case 'cperiod': keepCatDraft(); UI.sheet.draft.period = el.dataset.k; renderSheet(); break;
     case 'cicon': keepCatDraft(); UI.sheet.draft.icon = el.dataset.n; renderSheet(); break;
@@ -1177,7 +1296,7 @@ document.addEventListener('click', ev => {
     }
     case 'delcat':
       if (!UI.sheet.armed) { keepCatDraft(); UI.sheet.armed = true; renderSheet(); break; }
-      S.cats = S.cats.filter(c => c.id !== UI.sheet.id); commit('Kategorie glöscht'); break;
+      S.cats = S.cats.filter(c => c.id !== UI.sheet.id); UI.sheet.back = null; commit('Kategorie glöscht'); break;
     case 'income': case 'name': case 'startday': case 'goal': case 'export': case 'import': case 'wipe':
       UI.backToPots = a === 'goal' && UI.sheet?.kind === 'pots'; UI.sheet = { type: 'simple', kind: a }; renderSheet(); break;
     case 'badge': UI.sheet = { type: 'simple', kind: 'badge', i: Number(el.dataset.i) }; renderSheet(); break;
