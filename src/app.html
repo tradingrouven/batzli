@@ -551,6 +551,66 @@ function wishSection() {
   ${bought ? `<div class="hint">${bought} ${bought === 1 ? 'Wunsch' : 'Wünsch'} scho erfüllt.</div>` : ''}`;
 }
 
+/* ---------- challenges ---------- */
+const chals = () => S.challenges || (S.challenges = []);
+const dayLimitSum = () => S.cats.filter(c => c.kind === 'var' && c.period === 'day').reduce((t, c) => t + c.limit, 0);
+const varSpentOn = d => spentBetween(d, d, e => cat(e.cat)?.kind === 'var');
+const CHAL = {
+  budget7: { name: '7 Täg im Tagesbudget', icon: 'calendar', days: 7, desc: 'E Wuche lang jede Tag unter dim Tagesbudget bliibe.', ok: () => dayLimitSum() > 0, why: 'Bruucht e Kategorie mit Budget pro Tag.' },
+  nospend: { name: '3 Nüt-usgäh-Täg', icon: 'check', days: 7, desc: 'In 7 Täg a 3 Täg gar nüt usgäh. Tipp «Hüt nüt usgäh» uf Home.', ok: () => true },
+  nocat: { name: '14 Täg Pause', icon: 'shield', days: 14, desc: '14 Täg lang nüt in ere Kategorie usgäh, wo du wählsch.', ok: () => S.cats.some(c => c.kind === 'var'), pick: true },
+  extra10: { name: '10 % meh spare', icon: 'coins', desc: 'Spar dä Budget-Monet 10 % meh als din Sparplan.', ok: () => plannedMonthly() > 0, why: 'Bruucht es Spar-Budget im Budget.' },
+  save52: { name: '52-Wuche-Challenge', icon: 'piggy', desc: 'Wuche 1 sparsch 1 Franke, Wuche 2 zwei Franke, bis Wuche 52. Am Schluss häsch CHF 1\'378.', ok: () => true },
+};
+// status is derived from the entries every render, so edits and deletions stay consistent
+function chalState(ch) {
+  const t = today(), st = parse(ch.start), def = CHAL[ch.type];
+  if (ch.type === 'save52') {
+    const done = S.entries.filter(e => e.chal === ch.id).length, week = Math.floor(diffDays(st, t) / 7) + 1;
+    return { status: done >= 52 ? 'won' : 'active', pct: done / 52 * 100, text: `${done} vo 52 Wuche · ${chf(done * (done + 1) / 2)} gspart`, next: done < 52 && done + 1 <= week ? done + 1 : 0 };
+  }
+  if (ch.type === 'extra10') {
+    const M = budgetMonth(0, st), goal = Math.round(plannedMonthly() * 1.1);
+    const saved = spentBetween(M.start, M.end, e => cat(e.cat)?.kind === 'spar');
+    const status = saved >= goal ? 'won' : t > M.end ? 'failed' : 'active';
+    return { status, pct: goal ? saved / goal * 100 : 0, text: `${chf(saved)} vo ${chf(goal)} bis ${shortDate(ymd(M.end))}` };
+  }
+  const end = addDays(st, def.days - 1), last = t > end ? end : t, n = diffDays(st, last) + 1;
+  if (ch.type === 'nospend') {
+    let cnt = 0;
+    for (let d = st; d <= last; d = addDays(d, 1)) if (varSpentOn(d) === 0 && (ymd(d) < ymd(t) || S.checkins.includes(ymd(d)))) cnt++;
+    return { status: cnt >= 3 ? 'won' : t > end ? 'failed' : 'active', pct: cnt / 3 * 100, text: `${cnt} vo 3 Täg · no ${Math.max(0, diffDays(t, end) + 1)} Täg Zyt` };
+  }
+  if (ch.type === 'nocat') {
+    const hit = spentBetween(st, end, e => e.cat === ch.cat) > 0;
+    return { status: hit ? 'failed' : t > end ? 'won' : 'active', pct: n / def.days * 100, text: `${esc(cat(ch.cat)?.name || '?')} · Tag ${Math.min(n, def.days)} vo ${def.days}` };
+  }
+  // budget7: a finished day over the daily limit fails it
+  const lim = dayLimitSum(); let good = 0, bad = false;
+  for (let d = st; d <= last && ymd(d) < ymd(t); d = addDays(d, 1)) {
+    if (spentBetween(d, d, e => { const c = cat(e.cat); return c && c.kind === 'var' && c.period === 'day'; }) > lim) bad = true; else good++;
+  }
+  return { status: bad ? 'failed' : t > end ? 'won' : 'active', pct: good / 7 * 100, text: `${good} vo 7 Täg gschafft` };
+}
+function chalCard(ch) {
+  const def = CHAL[ch.type], r = chalState(ch), won = r.status === 'won', fail = r.status === 'failed';
+  const col = won ? GOLD : fail ? 'var(--bad)' : 'var(--accent)';
+  return `<div class="card ${won ? 'wish-done' : ''}" style="display:flex;flex-direction:column;gap:10px">
+    <div class="row"><span class="ico" style="background:color-mix(in srgb, ${col} 16%, transparent);color:${col}">${ic(won ? 'trophy' : def.icon)}</span>
+      <span class="grow"><b>${def.name}</b><br><small class="sub num">${r.text}</small></span>
+      ${won ? `<b style="color:${GOLD}">+100 XP</b>` : fail ? '<b style="color:var(--bad)">Verpasst</b>' : ''}</div>
+    <span class="bar thin" style="display:block"><span style="width:${Math.min(100, r.pct)}%;background:${col}"></span></span>
+    ${won ? `<span class="row" style="gap:8px"><button class="btn" style="padding:11px;font-size:.95rem;background:${GOLD}" data-act="chaldone" data-id="${ch.id}">Gschafft! Abhake</button></span>`
+    : fail ? `<div class="hint" style="margin:0">Kei Stress, das passiert. Grad nomal probiere?</div><span class="row" style="gap:8px"><button class="btn ghost" style="padding:11px;font-size:.95rem;border:2px solid var(--line)" data-act="chaldrop" data-id="${ch.id}">Wegtue</button><button class="btn" style="padding:11px;font-size:.95rem" data-act="chalretry" data-id="${ch.id}">Nomal starte</button></span>`
+    : r.next ? `<button class="btn" style="padding:11px;font-size:.95rem" data-act="chal52" data-id="${ch.id}" data-n="${r.next}">Wuche ${r.next}: ${chf(r.next)} spare</button>` : ''}
+  </div>`;
+}
+function chalSection() {
+  const act = chals().filter(c => !c.closed);
+  return `<div class="between" style="margin-top:8px"><h2>Challenges</h2><button class="link" data-act="chals">+ Neu</button></div>
+  ${act.length ? act.map(chalCard).join('') : '<button class="add-dashed" data-act="chals">Starte e Spar-Challenge</button>'}`;
+}
+
 /* ---------- backup ---------- */
 // data only lives on this phone, so nudge a file backup once a week
 const backupAge = () => S.lastBackup ? diffDays(parse(S.lastBackup), today()) : null;
@@ -634,6 +694,7 @@ function xpInfo() {
   xp += S.entries.filter(e => e.bonus).length * 50;
   xp += (S.wishes || []).filter(w => w.status === 'skipped').length * 20;
   xp += (S.wishes || []).filter(w => w.status === 'bought' && w.adds?.length).length * 30;
+  xp += (S.challenges || []).filter(c => c.won).length * 100;
   let li = 0;
   LEVELS.forEach(([min], i) => { if (xp >= min) li = i; });
   const cur = LEVELS[li][0], next = LEVELS[li + 1]?.[0] ?? cur + 1000;
@@ -656,6 +717,7 @@ function badgeList(C, st, xi) {
     { icon: 'safe', name: 'CHF 1\'000 gspart', got: C.saved >= 1000, how: '1\'000 Franke im Tresor.' },
     { icon: 'calendar', name: 'Wuche im Budget', got: weekOk, how: 'E ganzi Wuche nöd übers Budget.' },
     { icon: 'star', name: 'Level 5', got: xi.level >= 5, how: 'Erreich Level 5.' },
+    { icon: 'trophy', name: 'Challenge gwunne', got: (S.challenges || []).some(c => c.won), how: 'Schaff dini erschti Spar-Challenge.' },
   ];
 }
 
@@ -734,6 +796,7 @@ function viewHome() {
   </button>
 
 
+  ${chalSection()}
   <div class="between" style="margin-top:8px"><h2>Wo's knapp wird</h2><button class="link" data-act="tab" data-tab="budget">Alli Kategorie</button></div>
   <section class="card flush">${tight.map(catRow).join('') || '<div class="empty">No kei Kategorie.</div>'}</section>
 
@@ -1118,6 +1181,20 @@ function sheetSimple(s) {
       ${s.id ? `<button class="btn ghost" data-act="rpause">${d.paused ? 'Wieder aktiviere' : 'Pausiere'}</button>
         <button class="btn danger ${s.armed ? 'armed' : ''}" data-act="delrecur">${s.armed ? 'Sicher? Bisherigi Iiträg bliibed' : 'Lösche'}</button>` : ''}`);
   }
+  if (s.kind === 'chals') {
+    const running = new Set(chals().filter(c => !c.closed && chalState(c).status === 'active').map(c => c.type));
+    return sheetWrap('Spar-Challenge starte', `
+      <p class="hint" style="margin:0">Jedi gwunnigi Challenge git +100 XP.</p>
+      <section class="card flush">${Object.entries(CHAL).map(([k, d]) => {
+        const off = !d.ok() || (running.has(k) && !d.pick);
+        return `<div class="entry" style="flex-wrap:wrap;${off ? 'opacity:.55' : ''}">
+          <span class="ico" style="background:var(--accent-soft);color:var(--accent)">${ic(d.icon)}</span>
+          <span class="grow"><b>${d.name}</b><br><small>${!d.ok() ? d.why : running.has(k) && !d.pick ? 'Lauft scho' : d.desc}</small></span>
+          ${off ? '' : d.pick ? `<small class="sub" style="width:100%;margin-top:8px">Wähl d Kategorie zum Starte:</small><span class="chips" style="width:100%;margin-top:6px">${S.cats.filter(c => c.kind === 'var').map(c => `<button class="chip" style="background:var(--bg)" data-act="chalstart" data-k="${k}" data-cat="${c.id}"><span class="ico" style="color:${c.color}">${ic(c.icon)}</span>${esc(c.name)}</button>`).join('')}</span>`
+          : `<button class="btn" style="padding:9px 16px;font-size:.9rem;width:auto" data-act="chalstart" data-k="${k}">Start</button>`}
+        </div>`;
+      }).join('')}</section>`);
+  }
   if (s.kind === 'wipe') return sheetWrap('Alli Date lösche', `<p style="margin:0">Das löscht alli Iiträg, Kategorie und dis Sparziel uf däm Grät. Das chasch nöd rückgängig mache.</p><button class="btn danger armed" data-act="dowipe">Ja, alles lösche</button><button class="btn ghost" data-act="close">Abbräche</button>`);
   return '';
 }
@@ -1380,6 +1457,18 @@ document.addEventListener('click', ev => {
     }
     case 'doimport': restoreFrom(val('x-json')); break;
     case 'savefile': saveBackupFile(); break;
+    case 'chals': UI.sheet = { type: 'simple', kind: 'chals' }; renderSheet(); break;
+    case 'chalstart': chals().push({ id: uid(), type: el.dataset.k, cat: el.dataset.cat, start: ymd(today()) }); commit('Challenge gstartet. Du schaffsch das!'); break;
+    case 'chaldone': { const c = chals().find(x => x.id === el.dataset.id); if (c) { c.closed = true; c.won = true; save(); render(); toast('+100 XP. Mega!'); } break; }
+    case 'chaldrop': { const c = chals().find(x => x.id === el.dataset.id); if (c) { c.closed = true; save(); render(); } break; }
+    case 'chalretry': { const c = chals().find(x => x.id === el.dataset.id); if (c) { c.closed = true; chals().push({ id: uid(), type: c.type, cat: c.cat, start: ymd(today()) }); save(); render(); toast('Nöii Rundi, nöis Glück'); } break; }
+    case 'chal52': {
+      let sc = S.cats.find(c => c.kind === 'spar');
+      if (!sc) { sc = { id: uid(), name: 'Spare', icon: 'piggy', color: '#33B872', kind: 'spar', period: 'month', limit: 0 }; S.cats.push(sc); }
+      const n = Number(el.dataset.n);
+      S.entries.push({ id: uid(), amount: n, cat: sc.id, note: `52-Wuche-Challenge · Wuche ${n}`, date: ymd(today()), ts: Date.now(), chal: el.dataset.id, to: 'auto', split: splitFor(n) });
+      save(); render(); toast(`Wuche ${n} gspart!`); break;
+    }
     case 'backuplater': S.backupSnooze = ymd(today()); save(); render(); break;
     case 'wipe-confirm': break;
     case 'dowipe': try { localStorage.removeItem(KEY); } catch {} S = blankState({}); UI.tab = 'home'; commit('Alles glöscht'); UI.sheet = { type: 'setup', draft: { name: '', income: '', startDay: 1, goal: '', target: '', base: '' } }; renderSheet(); break;
