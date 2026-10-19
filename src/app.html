@@ -458,6 +458,28 @@ function compute() {
   return { t, M, rows, todayLeft, weekLeft, daysLeftMonth, daysLeftWeek, monthSpent, monthSaved, budgetTotal, leftInBudget, forecast, saved, ws };
 }
 
+/* ---------- month-end bonus ---------- */
+const monthKey = M => ymd(M.start);
+// the most recent finished budget month that still waits for a decision
+function pendingBonus() {
+  if (S.demo) return null;
+  const M = budgetMonth(-1);
+  const created = parse(S.created);
+  if (M.end < created || (S.closedMonths || []).includes(monthKey(M))) return null;
+  const out = spentBetween(M.start, M.end);
+  const left = Math.round(S.income - out);
+  return left > 0 ? { M, left } : null;
+}
+function bonusCard(b, inBudget) {
+  return `<section class="card" style="display:flex;flex-direction:column;gap:12px;border:2px solid var(--good)">
+    <div class="row">${pig('party').replace('class="pig', 'style="width:84px;flex:none" class="pig')}<div class="grow">
+      <div class="label" style="color:var(--good)">${b.M.label} isch fertig</div>
+      <div style="margin-top:4px">Du häsch <b class="num">${chf(b.left)}</b> übrig. Leg's in Tresor und hol dir <b>+50 XP</b>!</div></div></div>
+    <div class="row"><button class="btn" data-act="bonus" style="flex:2">In Tresor lege</button><button class="btn ghost" data-act="bonusskip" style="flex:1">Nöd jetzt</button></div>
+    ${inBudget ? '' : `<div class="hint">De Betrag isch dis Iikomme minus alles, wo du im ${b.M.label} iitreit häsch. Du chasch en vor em Speichere apasse.</div>`}
+  </section>`;
+}
+
 /* ---------- streak, xp, badges ---------- */
 function activeDays() {
   const set = new Set(S.checkins);
@@ -494,6 +516,7 @@ function xpInfo() {
     if (spent <= dayLimit) { xp += 15; goodDays++; }
   });
   xp += Math.floor(S.entries.reduce((s, e) => !isExpense(e) ? s + e.amount : s, 0) / 10);
+  xp += S.entries.filter(e => e.bonus).length * 50;
   let li = 0;
   LEVELS.forEach(([min], i) => { if (xp >= min) li = i; });
   const cur = LEVELS[li][0], next = LEVELS[li + 1]?.[0] ?? cur + 1000;
@@ -542,6 +565,7 @@ function viewHome() {
   const gp = g.target > 0 ? Math.min(1, C.saved / g.target) : 0;
   const over = C.todayLeft < 0;
   return `
+  ${(() => { const b = pendingBonus(); return b ? bonusCard(b) : ''; })()}
   ${S.demo ? `<button class="demo-banner" data-act="setup">${ic('sparkle')}<span class="grow"><b>Das sind Biispiil-Date.</b> Tipp do, zum dini eigete Zahle iirichte.</span>${ic('chevR', 'chev')}</button>` : ''}
   <header class="top">
     <div><h1>Hoi ${esc(S.name || 'du')}</h1><div class="sub">${WD[t.getDay()]}, ${t.getDate()}. ${MON[t.getMonth()]}</div></div>
@@ -659,6 +683,7 @@ function viewBudget() {
     <div class="stats3"><div><small>Usgäh</small><b class="num">${fmt0(spent)}</b></div><div><small>Budget total</small><b class="num">${fmt0(total)}</b></div><div><small>Monetsänd</small><b>${isNow ? `in ${daysTo} ${daysTo === 1 ? 'Tag' : 'Täg'}` : 'vorbii'}</b></div></div>
     ${total > S.income ? `<div class="hint" style="color:var(--bad)">Achtung: Dis Budget (${chf(total)}) isch höcher als dis Iikomme.</div>` : `<div class="hint">Nöd verplant: ${chf(S.income - total)} pro Monet.</div>`}
   </section>
+  ${(() => { const b = pendingBonus(); return b && UI.monthOff === -1 ? bonusCard(b, true) : ''; })()}
   <div class="between" style="margin-top:8px"><h2>Kategorie</h2></div>
   <section class="card flush">${rows.map(r => catRow(r, { tag: true, chev: true })).join('')}</section>
   <button class="add-dashed" data-act="newcat">+ Neui Kategorie</button>
@@ -833,6 +858,7 @@ function sheetSimple(s) {
   if (s.kind === 'badge') { const C = compute(), st = streakInfo(), xi = xpInfo(); const b = badgeList(C, st, xi)[s.i]; return sheetWrap(b.name, `<div class="badge ${b.got ? 'got' : ''}" style="font-size:1rem"><div class="medal" style="width:96px;height:96px">${ic(b.icon)}</div></div><p style="text-align:center;margin:0">${b.got ? 'Erreicht, bravo!' : b.how}</p><button class="btn ghost" data-act="close">Okay</button>`); }
   if (s.kind === 'export') return sheetWrap('Date sichere', `<p class="hint" style="margin:0">Kopier dä Text und speicher en z.B. i dini Notize. Mit «Date wiederhärstelle» chasch en spöter wieder iisetze.</p><textarea id="x-json" class="input" readonly>${esc(JSON.stringify(S))}</textarea><button class="btn" data-act="copyexport">Kopiere</button>`);
   if (s.kind === 'import') return sheetWrap('Date wiederhärstelle', `<p class="hint" style="margin:0">Setz de gsicherti Text ii. Dini jetzige Date werded ersetzt.</p><textarea id="x-json" class="input" placeholder="{ … }"></textarea><button class="btn" data-act="doimport">Wiederhärstelle</button>`);
+  if (s.kind === 'bonus') return sheetWrap('In Tresor lege', `<label class="field"><span>Betrag in CHF (so viel, wie du würkli uf s Sparkonto tuesch)</span><input id="b-val" class="input amount-input num" inputmode="decimal" value="${s.left}"></label><button class="btn" data-act="dobonus">Ab in Tresor</button>`);
   if (s.kind === 'wipe') return sheetWrap('Alli Date lösche', `<p style="margin:0">Das löscht alli Iiträg, Kategorie und dis Sparziel uf däm Grät. Das chasch nöd rückgängig mache.</p><button class="btn danger armed" data-act="dowipe">Ja, alles lösche</button><button class="btn ghost" data-act="close">Abbräche</button>`);
   return '';
 }
@@ -932,6 +958,18 @@ document.addEventListener('click', ev => {
     case 'delentry': S.entries = S.entries.filter(x => x.id !== UI.sheet.id); commit('Glöscht'); break;
     case 'checkin': if (!S.checkins.includes(ymd(today()))) S.checkins.push(ymd(today())); save(); render(); toast('Starch! Streak gsicheret'); break;
     case 'month': UI.monthOff = Math.min(0, UI.monthOff + Number(el.dataset.d)); render(); break;
+    case 'bonus': { const b = pendingBonus(); if (b) { UI.sheet = { type: 'simple', kind: 'bonus', left: b.left, key: monthKey(b.M), label: b.M.label, end: ymd(b.M.end) }; renderSheet(); } break; }
+    case 'bonusskip': { const b = pendingBonus(); if (b) { S.closedMonths = [...(S.closedMonths || []), monthKey(b.M)]; save(); render(); } break; }
+    case 'dobonus': {
+      const v = num('b-val');
+      if (!(v > 0)) { toast('Bitte en Betrag iigä'); break; }
+      let sc = S.cats.find(c => c.kind === 'spar');
+      if (!sc) { sc = { id: uid(), name: 'Spare', icon: 'piggy', color: '#33B872', kind: 'spar', period: 'month', limit: 0 }; S.cats.push(sc); }
+      const { key, label, end } = UI.sheet;
+      S.entries.push({ id: uid(), amount: Math.round(v * 100) / 100, cat: sc.id, note: `Monetsänd-Bonus ${label}`, date: end, ts: +parse(end) + 20 * 3600e3, bonus: true });
+      S.closedMonths = [...(S.closedMonths || []), key];
+      commit('+50 XP · ab in Tresor!'); break;
+    }
     case 'showall': UI.showAll = true; render(); break;
     case 'range': UI.range = el.dataset.r; render(); break;
     case 'newcat': UI.sheet = { type: 'cat', draft: { name: '', icon: 'dots', color: COLORS[S.cats.length % COLORS.length], kind: 'var', period: 'month', limit: '' } }; renderSheet(); break;
