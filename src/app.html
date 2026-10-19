@@ -302,7 +302,7 @@ const P = {
   sparkle: '<path d="M12 3c.6 4.4 2.6 6.4 7 7-4.4.6-6.4 2.6-7 7-.6-4.4-2.6-6.4-7-7 4.4-.6 6.4-2.6 7-7z"/><path d="M19 16.5c.2 1.4.9 2.1 2.3 2.3-1.4.2-2.1.9-2.3 2.3-.2-1.4-.9-2.1-2.3-2.3 1.4-.2 2.1-.9 2.3-2.3z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
 };
-const ic = (n, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || P.dots}</svg>`;
+const ic = (n, cls = '') => `<svg class="${cls}" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || P.dots}</svg>`;
 const CAT_ICONS = ['food', 'cart', 'train', 'car', 'phone', 'home', 'shield', 'piggy', 'glass', 'shirt', 'gift', 'heart', 'book', 'plane', 'paw', 'game', 'bolt', 'sun', 'dots'];
 const COLORS = ['#F07A62', '#8E7CF0', '#5B6CF0', '#33B872', '#49A6C9', '#6CC08A', '#E8A23A', '#E06FA4', '#8A94A6'];
 
@@ -458,6 +458,30 @@ function compute() {
   return { t, M, rows, todayLeft, weekLeft, daysLeftMonth, daysLeftWeek, monthSpent, monthSaved, budgetTotal, leftInBudget, forecast, saved, ws };
 }
 
+/* ---------- wishlist (48-hour rule) ---------- */
+const WAIT_H = 48;
+const wishes = () => S.wishes || (S.wishes = []);
+const hoursLeft = w => Math.max(0, Math.ceil(WAIT_H - (Date.now() - w.ts) / 3600e3));
+const skippedTotal = () => wishes().filter(w => w.status === 'skipped').reduce((a, w) => a + w.price, 0);
+function wishSection() {
+  const open = wishes().filter(w => w.status === 'wait').sort((a, b) => a.ts - b.ts);
+  const sk = skippedTotal();
+  const rows = open.map(w => {
+    const h = hoursLeft(w);
+    return `<div class="entry" style="flex-wrap:wrap">
+      <span class="ico" style="background:color-mix(in srgb, var(--warn) 16%, transparent);color:var(--warn)">${ic('gift')}</span>
+      <span class="grow"><b>${esc(w.name)}</b><br><small>${h ? `no ${h} Stund${h === 1 ? '' : 'e'} warte` : 'Wotsch es immer no? Verzichte git +20 XP'}</small></span>
+      <span class="amt num">${fmt2(w.price)}</span>
+      ${h ? '' : `<span class="row" style="width:100%;gap:8px;margin-top:10px"><button class="btn ghost" style="padding:11px;font-size:.95rem;border:2px solid var(--line)" data-act="wishbuy" data-id="${w.id}">Chaufe</button><button class="btn" style="padding:11px;font-size:.95rem;background:var(--good)" data-act="wishskip" data-id="${w.id}">Verzichte</button></span>`}
+    </div>`;
+  }).join('');
+  return `<div class="between" style="margin-top:8px"><h2>Wunschliste</h2><button class="link" data-act="newwish">+ Wunsch</button></div>
+  <section class="card flush">
+    ${rows || `<div class="empty" style="text-align:left">Wotsch öppis spontan chaufe? Setz's zersch do druf. Nach ${WAIT_H} Stunde fragt dich Batzli nomal, ob du's würkli wotsch.</div>`}
+    ${sk > 0 ? `<div class="entry" style="color:var(--good);font-weight:700">${ic('sparkle')}<span class="grow">Dur Verzicht gspart</span><span class="amt num">${chf(sk)}</span></div>` : ''}
+  </section>`;
+}
+
 /* ---------- month-end bonus ---------- */
 const monthKey = M => ymd(M.start);
 // the most recent finished budget month that still waits for a decision
@@ -517,6 +541,7 @@ function xpInfo() {
   });
   xp += Math.floor(S.entries.reduce((s, e) => !isExpense(e) ? s + e.amount : s, 0) / 10);
   xp += S.entries.filter(e => e.bonus).length * 50;
+  xp += (S.wishes || []).filter(w => w.status === 'skipped').length * 20;
   let li = 0;
   LEVELS.forEach(([min], i) => { if (xp >= min) li = i; });
   const cur = LEVELS[li][0], next = LEVELS[li + 1]?.[0] ?? cur + 1000;
@@ -612,6 +637,8 @@ function viewHome() {
       <div class="sub num" style="font-size:.9rem">${chf(C.saved)} vo ${fmt0(g.target)} · no ${fmt0(Math.max(0, g.target - C.saved))}</div>
     </div>
   </button>
+
+  ${wishSection()}
 
   <div class="between" style="margin-top:8px"><h2>Wo's knapp wird</h2><button class="link" data-act="tab" data-tab="budget">Alli Kategorie</button></div>
   <section class="card flush">${tight.map(catRow).join('') || '<div class="empty">No kei Kategorie.</div>'}</section>
@@ -785,6 +812,7 @@ function viewProfile() {
     <div class="card"><span style="color:var(--accent)">${ic('star')}</span><b class="num">${xi.xp}</b><small>XP</small></div>
     <div class="card"><span style="color:var(--good)">${ic('safe')}</span><b class="num">${fmt0(C.saved)}</b><small>im Tresor</small></div>
   </section>
+  ${skippedTotal() > 0 ? `<section class="card row"><span style="color:var(--good)">${ic('gift')}</span><span class="grow">Dur Verzicht uf Wünsch gspart</span><b class="num">${chf(skippedTotal())}</b></section>` : ''}
   <section class="card">
     <div class="between"><h2 style="font-size:1.2rem">Abzeiche</h2><span style="color:var(--accent);font-weight:800">${got} vo ${badges.length}</span></div>
     <div class="badges">${badges.map((b, i) => `<button class="badge ${b.got ? 'got' : ''}" data-act="badge" data-i="${i}"><div class="medal">${ic(b.icon)}</div>${b.name}</button>`).join('')}</div>
@@ -825,6 +853,7 @@ function sheetEntry(s) {
     <label class="field"><span>Notiz (freiwillig)</span><input id="f-note" class="input" placeholder="z.B. Migros" value="${esc(e?.note || s.note || '')}" maxlength="60"></label>
     <label class="field"><span>Datum</span><input id="f-date" class="input" type="date" value="${e?.date || s.date || ymd(today())}" max="${ymd(today())}"></label>
     <button class="btn" data-act="saveentry">${e ? 'Speichere' : 'Iitrage'}</button>
+    ${e ? '' : `<button class="btn ghost" data-act="towish">${ic('gift').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Zersch uf d Wunschliste (${WAIT_H} h warte)</button>`}
     ${e ? `<button class="btn danger" data-act="delentry">${ic('trash').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Iitrag lösche</button>` : ''}`);
 }
 function sheetCat(s) {
@@ -859,6 +888,7 @@ function sheetSimple(s) {
   if (s.kind === 'export') return sheetWrap('Date sichere', `<p class="hint" style="margin:0">Kopier dä Text und speicher en z.B. i dini Notize. Mit «Date wiederhärstelle» chasch en spöter wieder iisetze.</p><textarea id="x-json" class="input" readonly>${esc(JSON.stringify(S))}</textarea><button class="btn" data-act="copyexport">Kopiere</button>`);
   if (s.kind === 'import') return sheetWrap('Date wiederhärstelle', `<p class="hint" style="margin:0">Setz de gsicherti Text ii. Dini jetzige Date werded ersetzt.</p><textarea id="x-json" class="input" placeholder="{ … }"></textarea><button class="btn" data-act="doimport">Wiederhärstelle</button>`);
   if (s.kind === 'bonus') return sheetWrap('In Tresor lege', `<label class="field"><span>Betrag in CHF (so viel, wie du würkli uf s Sparkonto tuesch)</span><input id="b-val" class="input amount-input num" inputmode="decimal" value="${s.left}"></label><button class="btn" data-act="dobonus">Ab in Tresor</button>`);
+  if (s.kind === 'wish') return sheetWrap('Neue Wunsch', `<label class="field"><span>Was wotsch chaufe?</span><input id="w-name" class="input" maxlength="40" placeholder="z.B. Neui Sneakers" value="${esc(s.name || '')}"></label><label class="field"><span>Was choschtet's? (CHF)</span><input id="w-price" class="input num" inputmode="decimal" value="${s.price || ''}"></label><div class="hint">Batzli fragt dich in ${WAIT_H} Stunde nomal. Vill Wünsch sind bis dänn verflogen.</div><button class="btn" data-act="savewish">Uf d Liste</button>`);
   if (s.kind === 'wipe') return sheetWrap('Alli Date lösche', `<p style="margin:0">Das löscht alli Iiträg, Kategorie und dis Sparziel uf däm Grät. Das chasch nöd rückgängig mache.</p><button class="btn danger armed" data-act="dowipe">Ja, alles lösche</button><button class="btn ghost" data-act="close">Abbräche</button>`);
   return '';
 }
@@ -969,6 +999,21 @@ document.addEventListener('click', ev => {
       S.entries.push({ id: uid(), amount: Math.round(v * 100) / 100, cat: sc.id, note: `Monetsänd-Bonus ${label}`, date: end, ts: +parse(end) + 20 * 3600e3, bonus: true });
       S.closedMonths = [...(S.closedMonths || []), key];
       commit('+50 XP · ab in Tresor!'); break;
+    }
+    case 'newwish': UI.sheet = { type: 'simple', kind: 'wish' }; renderSheet(); break;
+    case 'towish': { const amt = num('f-amount'); UI.sheet = { type: 'simple', kind: 'wish', name: val('f-note'), price: amt > 0 ? amt : '' }; renderSheet(); break; }
+    case 'savewish': {
+      const name = val('w-name'), price = num('w-price');
+      if (!name) { toast('Bitte säg, was du wotsch'); break; }
+      if (!(price > 0)) { toast('Bitte en Priis iigä'); break; }
+      wishes().push({ id: uid(), name, price: Math.round(price * 100) / 100, ts: Date.now(), status: 'wait' });
+      commit(`Uf de Liste. Batzli fragt in ${WAIT_H} h nomal`); break;
+    }
+    case 'wishskip': { const w = wishes().find(x => x.id === el.dataset.id); if (w) { w.status = 'skipped'; w.decided = Date.now(); save(); render(); toast(`Starch! ${chf(w.price)} nöd usgäh`); } break; }
+    case 'wishbuy': {
+      const w = wishes().find(x => x.id === el.dataset.id);
+      if (w) { w.status = 'bought'; w.decided = Date.now(); save(); render(); UI.sheet = { type: 'entry', amount: w.price, note: w.name }; renderSheet(); }
+      break;
     }
     case 'showall': UI.showAll = true; render(); break;
     case 'range': UI.range = el.dataset.r; render(); break;
