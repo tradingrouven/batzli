@@ -225,7 +225,7 @@ h2 { font-family: var(--f-display); font-weight: 900; font-size: 1.45rem; margin
   padding-left: max(18px, env(safe-area-inset-left, 0px));
   padding-right: max(18px, env(safe-area-inset-right, 0px));
   padding-block: 10px calc(22px + env(safe-area-inset-bottom, 0px));
-  display: flex; flex-direction: column; gap: 14px; animation: up .24s cubic-bezier(.2, .8, .2, 1);
+  display: flex; flex-direction: column; gap: 14px; animation: up .24s cubic-bezier(.2, .8, .2, 1); overflow-x: hidden;
 }
 .grab { width: 44px; height: 5px; border-radius: 9px; background: var(--line); margin: 0 auto 2px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
@@ -259,7 +259,7 @@ textarea.input { min-height: 120px; font-family: ui-monospace, Menlo, monospace;
 @keyframes up { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
-.pig { height: auto; }
+.pig { width: 96px; height: auto; flex: none; }
 .pig.bob { animation: bob 3.2s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; } }
 @media (max-width: 370px) { .tiles { grid-template-columns: 1fr; } .hero .big { font-size: 2.8rem; } }
@@ -880,7 +880,7 @@ function sheetSimple(s) {
 function sheetSetup(s) {
   const d = s.draft;
   return sheetWrap('Iirichte', `
-    <div class="row">${pig('party')}<p style="margin:0" class="grow">Hoi! Ich bi Batzli und hilf dir bim Spare. Füll das churz us, de Rest chasch spöter apasse.</p></div>
+    <div class="row">${pig('party').replace('class="pig', 'style="width:84px" class="pig')}<p style="margin:0" class="grow">Hoi! Ich bi Batzli und hilf dir bim Spare. Füll das churz us, de Rest chasch spöter apasse.</p></div>
     <label class="field"><span>Wie heissisch?</span><input id="u-name" class="input" value="${esc(d.name)}" maxlength="20"></label>
     <label class="field"><span>Iikomme pro Monet (netto, CHF)</span><input id="u-income" class="input num" inputmode="decimal" value="${d.income || ''}" placeholder="z.B. 5500"></label>
     <label class="field"><span>Budget-Monet startet am</span><select id="u-start" class="input">${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${d.startDay === i + 1 ? 'selected' : ''}>${i + 1}.</option>`).join('')}</select></label>
