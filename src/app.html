@@ -611,6 +611,34 @@ function chalSection() {
   ${act.length ? act.map(chalCard).join('') : '<button class="add-dashed" data-act="chals">Starte e Spar-Challenge</button>'}`;
 }
 
+/* ---------- weekly review ---------- */
+// on Sunday the current week is reviewed, otherwise the last finished week
+const reviewWeek = () => { const t = today(); return t.getDay() === 0 ? weekStart(t) : addDays(weekStart(t), -7); };
+const weekLimit = c => c.period === 'day' ? c.limit * 7 : c.period === 'week' ? c.limit : c.limit * 7 / 30.4;
+function weekStats(ws) {
+  const we = addDays(ws, 6), act = activeDays();
+  const isVar = e => cat(e.cat)?.kind === 'var';
+  const varSpent = spentBetween(ws, we, isVar), fixSpent = spentBetween(ws, we, e => cat(e.cat)?.kind === 'fix');
+  const saved = spentBetween(ws, we, e => cat(e.cat)?.kind === 'spar');
+  const cats = S.cats.filter(c => c.kind === 'var').map(c => ({ c, spent: spentBetween(ws, we, e => e.cat === c.id), lim: weekLimit(c) })).filter(r => r.spent > 0).sort((a, b) => b.spent - a.spent);
+  const dl = dayLimitSum(), dayCat = e => { const c = cat(e.cat); return c && c.kind === 'var' && c.period === 'day'; };
+  let goodDays = 0, days = 0;
+  for (let i = 0; i < 7; i++) { const d = addDays(ws, i); if (d > today()) break; days++; if (!dl || spentBetween(d, d, dayCat) <= dl) goodDays++; }
+  let active = 0; for (let i = 0; i < 7; i++) if (act.has(ymd(addDays(ws, i)))) active++;
+  const top = S.entries.filter(e => inRange(e, ws, we) && isVar(e)).sort((a, b) => b.amount - a.amount)[0];
+  return { ws, we, varSpent, fixSpent, saved, cats, goodDays, days, active, top, varLimit: S.cats.filter(c => c.kind === 'var').reduce((t, c) => t + weekLimit(c), 0) };
+}
+function reviewTip(w, prev) {
+  const over = w.cats.find(r => r.lim > 0 && r.spent > r.lim);
+  if (over) return `Bi ${esc(over.c.name)} bisch ${chf(over.spent - over.lim)} drüber. Wie wär's mit de Challenge «14 Täg Pause» für ${esc(over.c.name)}?`;
+  if (w.saved === 0) return 'Die Wuche isch nüt in Tresor gange. Scho 20 Franke uf d Siite mached en Unterschied.';
+  if (prev.varSpent > 0 && w.varSpent < prev.varSpent) return `Du häsch ${chf(prev.varSpent - w.varSpent)} weniger usgäh als d Wuche vorher. Genau so wiiter!`;
+  if (w.active < 5) return "Trag jede Tag öppis ii, au wänn's nur «Hüt nüt usgäh» isch. So bhaltsch de Überblick.";
+  return 'Du bisch uf Kurs. Gönn dir öppis Chliis, wo nüt choschtet.';
+}
+const rangeLabel = (a, b) => a.getMonth() === b.getMonth() ? `${a.getDate()}.–${b.getDate()}. ${MON3[b.getMonth()]}.` : `${shortDate(ymd(a))} – ${shortDate(ymd(b))}`;
+const reviewDue = () => { const ws = reviewWeek(); return !S.reviews?.includes(ymd(ws)) && weekStats(ws).active > 0; };
+
 /* ---------- backup ---------- */
 // data only lives on this phone, so nudge a file backup once a week
 const backupAge = () => S.lastBackup ? diffDays(parse(S.lastBackup), today()) : null;
@@ -695,6 +723,7 @@ function xpInfo() {
   xp += (S.wishes || []).filter(w => w.status === 'skipped').length * 20;
   xp += (S.wishes || []).filter(w => w.status === 'bought' && w.adds?.length).length * 30;
   xp += (S.challenges || []).filter(c => c.won).length * 100;
+  xp += (S.reviews || []).length * 20;
   let li = 0;
   LEVELS.forEach(([min], i) => { if (xp >= min) li = i; });
   const cur = LEVELS[li][0], next = LEVELS[li + 1]?.[0] ?? cur + 1000;
@@ -747,6 +776,7 @@ function viewHome() {
   ${(() => { const b = pendingBonus(); return b ? bonusCard(b) : ''; })()}
   ${backupDue() ? `<section class="card row" style="gap:12px;flex-wrap:wrap"><span style="color:var(--accent)">${ic('download')}</span><span class="grow"><b>Zyt für dini Sicherig</b><br><small class="sub">Dini Date sind nur uf däm Handy. Letschti Sicherig: ${backupLabel()}.</small></span>
     <span class="row" style="width:100%;gap:8px"><button class="btn ghost" style="padding:11px;font-size:.95rem;border:2px solid var(--line)" data-act="backuplater">Spöter</button><button class="btn" style="padding:11px;font-size:.95rem" data-act="savefile">Jetzt sichere</button></span></section>` : ''}
+  ${reviewDue() ? `<button class="card row" data-act="review" style="border:0;text-align:left;width:100%;gap:12px">${pig('party').replace('class="pig', 'style="width:56px" class="pig')}<span class="grow"><b>Din Wuche-Rückblick isch da</b><br><small class="sub">${rangeLabel(reviewWeek(), addDays(reviewWeek(), 6))} · tipp zum Aaluege</small></span>${ic('chevR', 'chev')}</button>` : ''}
   ${S.demo ? `<button class="demo-banner" data-act="setup">${ic('sparkle')}<span class="grow"><b>Das sind Biispiil-Date.</b> Tipp do, zum dini eigete Zahle iirichte.</span>${ic('chevR', 'chev')}</button>` : ''}
   <header class="top">
     <div><h1>Hoi ${esc(S.name || 'du')}</h1><div class="sub">${WD[t.getDay()]}, ${t.getDate()}. ${MON[t.getMonth()]}</div></div>
@@ -940,7 +970,7 @@ function viewAnalyse() {
   const fc = C.forecast;
   const biggest = list.slice().sort((a, b) => b.amount - a.amount).slice(0, 5);
   return `
-  <header class="top"><h1>Analyse</h1></header>
+  <header class="top"><h1>Analyse</h1><button class="link" data-act="review">Wuche-Rückblick</button></header>
   <div class="seg" role="tablist">${[['week', 'Wuche'], ['month', 'Monet'], ['half', '6 Mönet'], ['year', 'Jahr']].map(([k, l]) => `<button role="tab" class="${r === k ? 'on' : ''}" data-act="range" data-r="${k}">${l}</button>`).join('')}</div>
   <section class="card buddy">
     ${pig(fc >= 0 ? 'happy' : 'worried')}
@@ -1180,6 +1210,27 @@ function sheetSimple(s) {
       <button class="btn" data-act="saverecur">Speichere</button>
       ${s.id ? `<button class="btn ghost" data-act="rpause">${d.paused ? 'Wieder aktiviere' : 'Pausiere'}</button>
         <button class="btn danger ${s.armed ? 'armed' : ''}" data-act="delrecur">${s.armed ? 'Sicher? Bisherigi Iiträg bliibed' : 'Lösche'}</button>` : ''}`);
+  }
+  if (s.kind === 'review') {
+    const ws = addDays(reviewWeek(), -7 * (s.off || 0)), w = weekStats(ws), prev = weekStats(addDays(ws, -7));
+    const good = w.varLimit > 0 ? w.varSpent <= w.varLimit : w.goodDays >= w.days - 1;
+    const diff = prev.varSpent > 0 ? Math.round((w.varSpent - prev.varSpent) / prev.varSpent * 100) : null;
+    const seen = S.reviews?.includes(ymd(ws));
+    const maxC = Math.max(1, ...w.cats.map(r => Math.max(r.spent, r.lim)));
+    return sheetWrap('Wuche-Rückblick', `
+      <div class="month-switch" style="align-self:center"><button data-act="revweek" data-d="1" aria-label="Wuche vorher">${ic('chevL').replace('<svg', '<svg width="18" height="18"')}</button><b>${rangeLabel(ws, w.we)}</b><button data-act="revweek" data-d="-1" aria-label="Wuche nachher" ${!s.off ? 'disabled style="opacity:.3"' : ''}>${ic('chevR').replace('<svg', '<svg width="18" height="18"')}</button></div>
+      <section class="card buddy">${pig(good ? 'party' : 'worried').replace('class="pig', 'style="width:84px" class="pig')}<div class="grow"><div class="bubble">${good ? 'Starchi Wuche! Du bisch im Budget bliibe.' : 'Die Wuche isch chli tüür gsi. Nöd schlimm, nächsti Wuche wird besser.'}</div></div></section>
+      <section class="card"><div class="stats3">
+        <div><small>Usgäh</small><b class="num">${fmt0(w.varSpent)}</b></div>
+        <div><small>Gspart</small><b class="num" style="color:var(--good)">${fmt0(w.saved)}</b></div>
+        <div><small>Täg im Budget</small><b class="num">${w.goodDays}/${w.days}</b></div></div>
+        ${diff !== null ? `<div class="hint" style="margin-top:12px">${diff === 0 ? 'Gliich vill usgäh wie d Wuche vorher.' : `${Math.abs(diff)} % ${diff < 0 ? 'weniger' : 'meh'} usgäh als d Wuche vorher (${chf(prev.varSpent)}).`}${w.fixSpent ? ` Fixkoste: ${chf(w.fixSpent)}.` : ''}</div>` : ''}
+      </section>
+      ${w.cats.length ? `<div class="field"><span>Wo's Gäld häre isch</span><section class="card" style="display:flex;flex-direction:column;gap:12px">${w.cats.slice(0, 4).map(r => `<div><div class="between"><b>${esc(r.c.name)}</b><span class="num ${r.lim && r.spent > r.lim ? '' : 'sub'}" style="${r.lim && r.spent > r.lim ? 'color:var(--bad)' : ''}">${chf(r.spent)}${r.lim ? ` vo ${fmt0(r.lim)}` : ''}</span></div><span class="bar thin" style="display:block;margin-top:6px"><span style="width:${r.spent / maxC * 100}%;background:${r.c.color}"></span></span></div>`).join('')}</section></div>` : ''}
+      ${w.top ? `<div class="hint">Gröschti Usgab: ${esc(w.top.note || cat(w.top.cat)?.name || '')} für ${chf(w.top.amount)} am ${shortDate(w.top.date)}</div>` : ''}
+      <section class="card row" style="gap:12px"><span style="color:var(--accent)">${ic('sparkle')}</span><span class="grow"><b>Batzli-Tipp</b><br><small>${reviewTip(w, prev)}</small></span></section>
+      <div class="hint">${w.active} vo 7 Täg iitreit.</div>
+      ${seen ? '<button class="btn ghost" data-act="close">Zue</button>' : `<button class="btn" data-act="reviewdone" data-w="${ymd(ws)}">Merci Batzli · +20 XP</button>`}`);
   }
   if (s.kind === 'chals') {
     const running = new Set(chals().filter(c => !c.closed && chalState(c).status === 'active').map(c => c.type));
@@ -1457,6 +1508,9 @@ document.addEventListener('click', ev => {
     }
     case 'doimport': restoreFrom(val('x-json')); break;
     case 'savefile': saveBackupFile(); break;
+    case 'review': UI.sheet = { type: 'simple', kind: 'review', off: 0 }; renderSheet(); break;
+    case 'revweek': UI.sheet.off = Math.max(0, (UI.sheet.off || 0) + Number(el.dataset.d)); renderSheet(); break;
+    case 'reviewdone': S.reviews = [...(S.reviews || []), el.dataset.w]; commit('+20 XP. Bis nächsti Wuche!'); break;
     case 'chals': UI.sheet = { type: 'simple', kind: 'chals' }; renderSheet(); break;
     case 'chalstart': chals().push({ id: uid(), type: el.dataset.k, cat: el.dataset.cat, start: ymd(today()) }); commit('Challenge gstartet. Du schaffsch das!'); break;
     case 'chaldone': { const c = chals().find(x => x.id === el.dataset.id); if (c) { c.closed = true; c.won = true; save(); render(); toast('+100 XP. Mega!'); } break; }
