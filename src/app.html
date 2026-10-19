@@ -94,6 +94,12 @@ h2 { font-family: var(--f-display); font-weight: 900; font-size: 1.45rem; margin
 .hero { background: linear-gradient(150deg, var(--accent-2), var(--accent)); color: var(--on-accent); border-radius: var(--r-card); padding: 20px; box-shadow: 0 18px 34px -20px var(--accent); }
 .hero .big { font-family: var(--f-display); font-weight: 900; font-size: 3.3rem; line-height: 1; margin: 6px 0 10px; letter-spacing: -.02em; }
 .hero.over { background: linear-gradient(150deg, #F07A8E, #D9475F); box-shadow: 0 18px 34px -20px #D9475F; }
+.quick { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding: 2px 2px 8px; }
+.quick::-webkit-scrollbar { display: none; }
+.quick button { flex: none; display: flex; align-items: center; gap: 8px; border: 0; background: var(--card); color: var(--ink); box-shadow: var(--shadow); border-radius: 999px; padding: 8px 14px 8px 8px; font: inherit; font-weight: 700; }
+.quick .ico { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; }
+.quick .ico svg { width: 18px; height: 18px; }
+.toast button { margin-left: 10px; border: 0; background: none; color: var(--accent-2, #9DB1FF); font: inherit; font-weight: 800; padding: 0; }
 .hero-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
 .hero-split div { background: rgba(255,255,255,.16); border-radius: 14px; padding: 10px 12px; }
 .hero-split small { display: block; opacity: .85; font-size: .8rem; }
@@ -611,6 +617,25 @@ function chalSection() {
   ${act.length ? act.map(chalCard).join('') : '<button class="add-dashed" data-act="chals">Starte e Spar-Challenge</button>'}`;
 }
 
+/* ---------- quick entries: the most repeated expenses, one tap each ---------- */
+function quickList() {
+  const from = ymd(addDays(today(), -90)), seen = {};
+  S.entries.forEach(e => {
+    const c = cat(e.cat);
+    if (!c || c.kind === 'spar' || e.auto || e.rec || e.date < from) return;
+    const note = (e.note || '').trim(), k = `${e.cat}|${note.toLowerCase()}|${e.amount}`;
+    const q = seen[k] || (seen[k] = { cat: e.cat, note, amount: e.amount, n: 0, last: '' });
+    q.n++; if (e.date > q.last) q.last = e.date;
+  });
+  return Object.values(seen).filter(q => q.n >= 2).sort((a, b) => b.n - a.n || b.last.localeCompare(a.last)).slice(0, 6);
+}
+function quickSection() {
+  const q = quickList();
+  if (!q.length) return '';
+  return `<div class="between" style="margin-top:8px"><h2>Schnell iitrage</h2><span class="sub">1 Tipp = iitreit</span></div>
+  <div class="quick">${q.map((x, i) => { const c = cat(x.cat); return `<button data-act="quick" data-i="${i}"><span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>${esc(x.note || c.name)} <span class="num sub">${fmt2(x.amount)}</span></button>`; }).join('')}</div>`;
+}
+
 /* ---------- weekly review ---------- */
 // on Sunday the current week is reviewed, otherwise the last finished week
 const reviewWeek = () => { const t = today(); return t.getDay() === 0 ? weekStart(t) : addDays(weekStart(t), -7); };
@@ -800,6 +825,7 @@ function viewHome() {
       <div><small>De Monet no · ${C.daysLeftMonth} Täg</small><b class="num">${chf(C.leftInBudget)}</b></div>
     </div>
   </section>
+  ${quickSection()}
 
   <section class="tiles">
     <div class="card">
@@ -1316,9 +1342,10 @@ function renderSheet() {
 }
 let toastT;
 // toasts only touch their own element, so typed input in an open sheet survives
-function toast(msg) {
-  UI.toast = msg; layer.querySelector('.toast')?.remove(); layer.insertAdjacentHTML('beforeend', `<div class="toast">${esc(msg)}</div>`);
-  clearTimeout(toastT); toastT = setTimeout(() => { UI.toast = null; layer.querySelector('.toast')?.remove(); }, 2200);
+function toast(msg, undoId) {
+  UI.toast = msg; layer.querySelector('.toast')?.remove();
+  layer.insertAdjacentHTML('beforeend', `<div class="toast">${esc(msg)}${undoId ? `<button data-act="undo" data-id="${undoId}">Rückgängig</button>` : ''}</div>`);
+  clearTimeout(toastT); toastT = setTimeout(() => { UI.toast = null; layer.querySelector('.toast')?.remove(); }, undoId ? 4500 : 2200);
 }
 const num = id => { const v = parseFloat(String(document.getElementById(id)?.value || '').replace(/[’' ]/g, '').replace(',', '.')); return isFinite(v) ? v : NaN; };
 const val = id => (document.getElementById(id)?.value || '').trim();
@@ -1508,6 +1535,12 @@ document.addEventListener('click', ev => {
     }
     case 'doimport': restoreFrom(val('x-json')); break;
     case 'savefile': saveBackupFile(); break;
+    case 'quick': {
+      const q = quickList()[Number(el.dataset.i)]; if (!q) break;
+      const e = { id: uid(), amount: q.amount, cat: q.cat, note: q.note, date: ymd(today()), ts: Date.now() };
+      S.entries.push(e); save(); render(); toast(`${q.note || cat(q.cat).name} ${fmt2(q.amount)} iitreit`, e.id); break;
+    }
+    case 'undo': S.entries = S.entries.filter(x => x.id !== el.dataset.id); save(); render(); toast('Rückgängig gmacht'); break;
     case 'review': UI.sheet = { type: 'simple', kind: 'review', off: 0 }; renderSheet(); break;
     case 'revweek': UI.sheet.off = Math.max(0, (UI.sheet.off || 0) + Number(el.dataset.d)); renderSheet(); break;
     case 'reviewdone': S.reviews = [...(S.reviews || []), el.dataset.w]; commit('+20 XP. Bis nächsti Wuche!'); break;
