@@ -155,7 +155,7 @@ h2 { font-family: var(--f-display); font-weight: 900; font-size: 1.45rem; margin
 .month-switch { display: inline-flex; align-items: center; gap: 4px; background: var(--card); border-radius: 999px; padding: 4px; box-shadow: var(--shadow); }
 .month-switch button { border: 0; background: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; }
 .month-switch b { font-family: var(--f-display); min-width: 92px; text-align: center; }
-.income { display: flex; align-items: center; justify-content: space-between; background: var(--accent-soft); color: var(--accent); border-radius: 16px; padding: 12px 14px; border: 0; width: 100%; font-weight: 700; }
+.income { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--accent-soft); color: var(--accent); border-radius: 16px; padding: 12px 14px; border: 0; width: 100%; font-weight: 700; }
 .income > span { white-space: nowrap; }
 .income b { font-family: var(--f-display); font-size: 1.2rem; }
 .stack { display: flex; height: 14px; border-radius: 999px; overflow: hidden; background: var(--track); gap: 2px; }
@@ -623,7 +623,7 @@ function catRow(r, opts = {}) {
   const per = c.kind === 'var' ? { day: 'pro Tag', week: 'pro Wuche', month: 'pro Monet' }[c.period] : c.kind === 'fix' ? 'Fixkoste' : 'Spare';
   const meta = c.kind === 'var' && c.period === 'day'
     ? `Hüt ${fmt0(r.spent)} usgäh · ${fmt0(c.limit)} pro Tag`
-    : `${fmt0(r.spent)} vo ${fmt0(r.limit)} CHF ${c.kind === 'var' ? (c.period === 'week' ? 'die Wuche' : 'de Monet') : ''}`;
+    : `${fmt0(r.spent)} vo ${fmt0(r.limit)} CHF ${c.kind === 'var' ? (c.period === 'week' ? 'die Wuche' : 'de Monet') : ''}${c.kind === 'fix' && c.autoDay ? ` · automatisch am ${c.autoDay}.` : ''}`;
   const dayPct = c.kind === 'var' && c.period === 'day' ? Math.min(100, Math.max(0, (1 - r.left / Math.max(c.limit, 1)) * 100)) : pct;
   return `<button class="cat" data-act="editcat" data-id="${c.id}">
     <span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>
@@ -643,7 +643,7 @@ function entryList(list) {
     const sav = c.kind === 'spar';
     return `<button class="entry" data-act="editentry" data-id="${e.id}">
       <span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>
-      <span class="grow"><b>${esc(e.note || c.name)}</b><br><small>${esc(c.name)} · ${shortDate(e.date)}</small></span>
+      <span class="grow"><b>${esc(e.note || c.name)}</b>${e.auto ? '<span class="tag">automatisch</span>' : ''}<br><small>${esc(c.name)} · ${shortDate(e.date)}</small></span>
       <span class="amt num" style="${sav ? 'color:var(--good)' : ''}">${sav ? '+' : '−'}${fmt2(e.amount)}</span>
     </button>`;
   }).join('');
@@ -668,7 +668,7 @@ function viewBudget() {
     <div class="month-switch"><button data-act="month" data-d="-1" aria-label="Vorheriger Monet">${ic('chevL').replace('<svg', '<svg width="18" height="18"')}</button><b>${M.label}</b><button data-act="month" data-d="1" aria-label="Nächster Monet" ${isNow ? 'disabled style="opacity:.3"' : ''}>${ic('chevR').replace('<svg', '<svg width="18" height="18"')}</button></div>
   </header>
   <section class="card" style="display:flex;flex-direction:column;gap:14px">
-    <button class="income" data-act="income"><span class="row" style="gap:8px">${ic('wallet').replace('<svg', '<svg width="20" height="20"')} Iikomme pro Monet</span><span class="row" style="gap:8px"><b class="num">${chf(S.income)}</b>${ic('pencil').replace('<svg', '<svg width="18" height="18"')}</span></button>
+    <button class="income" data-act="income"><span class="row" style="gap:8px">${ic('wallet').replace('<svg', '<svg width="20" height="20"')} Iikomme</span><span class="row" style="gap:8px"><b class="num">${chf(S.income)}</b>${ic('pencil').replace('<svg', '<svg width="18" height="18"')}</span></button>
     <div><div class="sub">${left >= 0 ? 'No übrig im Budget' : 'Übers Budget'}</div><div class="num" style="font-family:var(--f-display);font-weight:900;font-size:2.6rem;line-height:1.1;color:${left < 0 ? 'var(--bad)' : 'inherit'}">${chf(Math.abs(left))}</div></div>
     <div class="stack">${segs}</div>
     <div class="stats3"><div><small>Usgäh</small><b class="num">${fmt0(spent)}</b></div><div><small>Budget total</small><b class="num">${fmt0(total)}</b></div><div><small>Monetsänd</small><b>${isNow ? `in ${daysTo} ${daysTo === 1 ? 'Tag' : 'Täg'}` : 'vorbii'}</b></div></div>
@@ -826,6 +826,9 @@ function sheetCat(s) {
       <div class="hint">${d.kind === 'var' ? 'Gäld, wo du frei usgisch. Zählt für «Hüt chasch no usgäh».' : d.kind === 'fix' ? 'Feschti Rächnige wie Miete oder Krankekasse. Zählt nöd is Tagesbudget.' : 'Was du uf d Siite leisch. Gaht direkt i dis Sparziel.'}</div></div>
     ${d.kind === 'var' ? `<div class="field"><span>Budget pro</span><div class="seg">${[['day', 'Tag'], ['week', 'Wuche'], ['month', 'Monet']].map(([k, l]) => `<button class="${d.period === k ? 'on' : ''}" data-act="cperiod" data-k="${k}">${l}</button>`).join('')}</div>
       ${d.period === 'day' ? '<div class="hint">Was du amne Tag nöd bruuchsch, chasch spöter im Monet no usgäh.</div>' : ''}</div>` : ''}
+    ${d.kind === 'fix' ? `<div class="field"><span>Automatisch iitrage</span>
+      <select id="c-auto" class="input"><option value="0" ${!d.autoDay ? 'selected' : ''}>Nei, ich trag's sälber ii</option>${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${d.autoDay === i + 1 ? 'selected' : ''}>Jede Monet am ${i + 1}.</option>`).join('')}</select>
+      <div class="hint">Batzli treit dä Betrag jede Monet am gwählte Tag sälber ii.</div></div>` : ''}
     <label class="field"><span>${d.kind === 'spar' ? 'Spar-Ziel pro Monet' : 'Budget'} in CHF${d.kind === 'var' ? ` pro ${{ day: 'Tag', week: 'Wuche', month: 'Monet' }[d.period]}` : ' pro Monet'}</span><input id="c-limit" class="input num" inputmode="decimal" value="${d.limit || ''}" placeholder="0"></label>
     <div class="field"><span>Symbol</span><div class="icon-grid">${CAT_ICONS.map(n => `<button class="${d.icon === n ? 'on' : ''}" data-act="cicon" data-n="${n}" aria-label="${n}">${ic(n)}</button>`).join('')}</div></div>
     <div class="field"><span>Farb</span><div class="swatches">${COLORS.map(col => `<button class="swatch ${d.color === col ? 'on' : ''}" style="background:${col}" data-act="ccolor" data-c="${col}" aria-label="Farb ${col}"></button>`).join('')}</div></div>
@@ -857,13 +860,35 @@ function sheetSetup(s) {
     <label class="field"><span>Budget-Monet startet am</span><select id="u-start" class="input">${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${d.startDay === i + 1 ? 'selected' : ''}>${i + 1}.</option>`).join('')}</select></label>
     <label class="field"><span>Wofür sparsch?</span><input id="u-goal" class="input" value="${esc(d.goal)}" placeholder="z.B. Eigeti Wohnig" maxlength="30"></label>
     <div class="row"><label class="field grow"><span>Ziel (CHF)</span><input id="u-target" class="input num" inputmode="decimal" value="${d.target || ''}"></label><label class="field grow"><span>Scho gspart</span><input id="u-base" class="input num" inputmode="decimal" value="${d.base || ''}" placeholder="0"></label></div>
-    <div class="hint">Ich lege dir es paar Kategorie aa (Essen pro Tag, Uusgang pro Wuche, Miete, Krankekasse …). Die chasch im Budget apasse.</div>
+    <div class="hint">Ich lege dir es paar Kategorie aa (Essen pro Tag, Uusgang pro Wuche, Miete, Krankekasse …). Die chasch im Budget apasse. Bi de Fixkoste chasch iistelle, dass Batzli sie jede Monet sälber iiträgt.</div>
     <button class="btn" data-act="dosetup">Los gahts</button>`);
 }
 
 /* ---------- render ---------- */
 const app = document.getElementById('app'), nav = document.getElementById('nav'), layer = document.getElementById('layer');
+// fixed costs with autoDay get booked once per calendar month on that day
+function autoBook() {
+  S.autoDone = S.autoDone || [];
+  const t = today(), created = parse(S.created);
+  let added = 0;
+  S.cats.forEach(c => {
+    if (c.kind !== 'fix' || !c.autoDay || !(c.limit > 0)) return;
+    for (let d = new Date(created.getFullYear(), created.getMonth(), 1); d <= t; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+      const due = new Date(d.getFullYear(), d.getMonth(), c.autoDay);
+      const key = `${c.id}-${due.getFullYear()}-${pad(due.getMonth() + 1)}`;
+      if (due > t || S.autoDone.includes(key)) continue;
+      S.autoDone.push(key);
+      const ym = key.slice(-7);
+      if (S.entries.some(e => e.cat === c.id && e.date.slice(0, 7) === ym)) continue; // already entered by hand
+      S.entries.push({ id: uid(), amount: c.limit, cat: c.id, note: c.name, date: ymd(due), ts: +due + 8 * 3600e3, auto: true });
+      added++;
+    }
+  });
+  if (added) save();
+  return added;
+}
 function render() {
+  autoBook();
   const v = { home: viewHome, budget: viewBudget, analyse: viewAnalyse, profile: viewProfile }[UI.tab];
   app.innerHTML = v();
   const tab = (k, n, l) => `<button class="tab ${UI.tab === k ? 'on' : ''}" data-act="tab" data-tab="${k}" aria-current="${UI.tab === k ? 'page' : 'false'}">${ic(n)}${l}</button>`;
@@ -883,7 +908,7 @@ const num = id => { const v = parseFloat(String(document.getElementById(id)?.val
 const val = id => (document.getElementById(id)?.value || '').trim();
 function commit(msg) { save(); UI.sheet = null; render(); if (msg) toast(msg); }
 // keep typed values when a sheet re-renders after a chip tap
-function keepCatDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('c-name'); const l = num('c-limit'); d.limit = isNaN(l) ? '' : l; }
+function keepCatDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('c-name'); if (document.getElementById('c-auto')) d.autoDay = Number(val('c-auto')) || 0; const l = num('c-limit'); d.limit = isNaN(l) ? '' : l; }
 function keepEntryDraft() { const s = UI.sheet; s.amount = val('f-amount'); s.note = val('f-note'); s.date = val('f-date'); }
 
 const PRESETS = [
@@ -934,7 +959,7 @@ document.addEventListener('click', ev => {
       keepCatDraft(); const d = UI.sheet.draft;
       if (!d.name) { toast('Bitte en Name iigä'); break; }
       if (!(d.limit >= 0) || d.limit === '') { toast('Bitte es Budget iigä'); break; }
-      const rec = { name: d.name, icon: d.icon, color: d.color, kind: d.kind, period: d.kind === 'var' ? d.period : 'month', limit: d.limit };
+      const rec = { name: d.name, icon: d.icon, color: d.color, kind: d.kind, period: d.kind === 'var' ? d.period : 'month', limit: d.limit, autoDay: d.kind === 'fix' ? (d.autoDay || 0) : 0 };
       if (UI.sheet.id) Object.assign(cat(UI.sheet.id), rec); else S.cats.push({ id: uid(), ...rec });
       commit('Gspeicheret'); break;
     }
