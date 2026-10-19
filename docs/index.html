@@ -469,9 +469,51 @@ function compute() {
   const varSpentBeforeTracked = spentBetween(M.start, addDays(tracked, -1), e => cat(e.cat)?.kind === 'var');
   const plannedFixed = S.cats.filter(c => c.kind !== 'var').reduce((s, c) => s + Math.max(c.limit, spentBetween(M.start, M.end, e => e.cat === c.id)), 0);
   const forecast = S.income - plannedFixed - varPace - varSpentBeforeTracked;
-  const saved = (S.goal?.base || 0) + S.entries.reduce((s, e) => !isExpense(e) ? s + e.amount : s, 0);
-  return { t, M, rows, todayLeft, weekLeft, daysLeftMonth, daysLeftWeek, monthSpent, monthSaved, budgetTotal, leftInBudget, forecast, saved, ws };
+  const saved = (S.goal?.base || 0) + pots().reduce((a, p) => a + (p.base || 0), 0) + S.entries.reduce((s, e) => !isExpense(e) ? s + e.amount : s, 0);
+  const GT = goalTotals();
+  return { t, M, rows, todayLeft, weekLeft, daysLeftMonth, daysLeftWeek, monthSpent, monthSaved, budgetTotal, leftInBudget, forecast, saved, ws, GT };
 }
+
+/* ---------- savings goals: main goal + special goals (pots) ---------- */
+const pots = () => S.pots || (S.pots = []);
+const potPctSum = () => pots().reduce((a, p) => a + (p.pct || 0), 0);
+// how a savings deposit is split: 'auto' by percent, 'main', or one pot id
+function splitFor(amount, to = 'auto') {
+  if (to === 'main') return {};
+  if (to !== 'auto') return pots().some(p => p.id === to) ? { [to]: amount } : {};
+  const out = {};
+  pots().forEach(p => { if (p.pct > 0 && !p.done) out[p.id] = Math.round(amount * p.pct) / 100; });
+  return out;
+}
+function goalTotals() {
+  const ids = new Set(pots().map(p => p.id));
+  const potSaved = Object.fromEntries(pots().map(p => [p.id, p.base || 0]));
+  let main = S.goal?.base || 0;
+  S.entries.forEach(e => {
+    if (isExpense(e)) return;
+    let rest = e.amount;
+    Object.entries(e.split || {}).forEach(([id, v]) => { if (ids.has(id)) { potSaved[id] += v; rest -= v; } });
+    main += rest;
+  });
+  return { main, potSaved };
+}
+const plannedMonthly = () => S.cats.filter(c => c.kind === 'spar').reduce((a, c) => a + (c.limit || 0), 0);
+function monthsUntil(due) {
+  if (!due) return 0;
+  const [y, m] = due.split('-').map(Number), t = today();
+  return Math.max(1, (y - t.getFullYear()) * 12 + (m - 1 - t.getMonth()) + 1);
+}
+function potPlan(p, saved) {
+  const P = plannedMonthly(), left = Math.max(0, p.target - saved);
+  const months = monthsUntil(p.due);
+  const perMonth = P * (p.pct || 0) / 100;
+  const need = months ? left / months : 0;
+  const suggest = P > 0 && need > 0 ? Math.min(100, Math.ceil(need / P * 100 / 5) * 5) : 0;
+  const eta = perMonth > 0 ? Math.ceil(left / perMonth) : Infinity;
+  return { P, left, months, perMonth, need, suggest, eta, ok: left <= 0 || (months ? perMonth >= need - 0.5 : perMonth > 0) };
+}
+const etaText = n => n === Infinity ? 'nie, ohni Spar-Ateil' : n <= 0 ? 'scho erreicht' : n === 1 ? 'in ca. 1 Monet' : n < 24 ? `in ca. ${n} Mönet` : `in ca. ${Math.round(n / 12)} Johr`;
+const dueText = due => { if (!due) return ''; const [y, m] = due.split('-').map(Number); return `${MON[m - 1]} ${y}`; };
 
 /* ---------- wishlist (48-hour rule) ---------- */
 const WAIT_H = 48;
@@ -602,7 +644,7 @@ function viewHome() {
   const ws = C.ws;
   const dots = WD2.map((n, i) => { const d = addDays(ws, i); return `<div><i class="${st.act.has(ymd(d)) ? 'on' : ''} ${ymd(d) === ymd(t) ? 'today' : ''}"></i><small>${n}</small></div>`; }).join('');
   const g = S.goal || { name: 'Sparziel', target: 1000 };
-  const gp = g.target > 0 ? Math.min(1, C.saved / g.target) : 0;
+  const gp = g.target > 0 ? Math.min(1, C.GT.main / g.target) : 0;
   const over = C.todayLeft < 0;
   return `
   ${(() => { const b = pendingBonus(); return b ? bonusCard(b) : ''; })()}
@@ -644,13 +686,14 @@ function viewHome() {
     </div>
   </section>
 
-  <button class="card goal" data-act="goal" style="border:0;text-align:left;width:100%">
+  <button class="card goal" data-act="pots" style="border:0;text-align:left;width:100%;flex-wrap:wrap">
     ${pig('happy')}
     <div class="grow">
       <div class="between"><b style="font-family:var(--f-display);font-size:1.1rem">Sparziel: ${esc(g.name)}</b><span class="sub num">${Math.round(gp * 100)} %</span></div>
       <div class="bar" style="margin:10px 0 8px"><span style="width:${Math.max(gp * 100, 2)}%;background:var(--good)"></span></div>
-      <div class="sub num" style="font-size:.9rem">${chf(C.saved)} vo ${fmt0(g.target)} · no ${fmt0(Math.max(0, g.target - C.saved))}</div>
+      <div class="sub num" style="font-size:.9rem">${chf(C.GT.main)} vo ${fmt0(g.target)} · no ${fmt0(Math.max(0, g.target - C.GT.main))}</div>
     </div>
+    ${pots().length ? `<div style="width:100%;display:flex;flex-direction:column;gap:10px;border-top:1px solid var(--line);padding-top:12px;margin-top:2px">${pots().map(p => { const sv = C.GT.potSaved[p.id] || 0, pp = p.target > 0 ? Math.min(1, sv / p.target) : 0; return `<div class="row" style="gap:10px"><span style="color:${p.color}">${ic(p.icon || 'target')}</span><span class="grow"><span class="between" style="font-size:.92rem"><b>${esc(p.name)}</b><span class="sub num">${chf(sv)} / ${fmt0(p.target)}</span></span><span class="bar thin" style="display:block;margin-top:6px"><span style="width:${Math.max(pp * 100, 2)}%;background:${p.color}"></span></span></span></div>`; }).join('')}</div>` : `<div class="hint" style="width:100%">Tipp do für Sonderziel wie Ferie oder e grösseri Aaschaffig.</div>`}
   </button>
 
   ${wishSection()}
@@ -834,7 +877,7 @@ function viewProfile() {
   </section>
   <div class="section-label">Spare</div>
   <section class="card flush">
-    <button class="setting" data-act="goal">${ic('target')} Sparziel<span class="val">${esc(S.goal?.name || '–')}</span>${ic('chevR', 'chev')}</button>
+    <button class="setting" data-act="pots">${ic('target')} Sparziel & Sonderziel<span class="val">${pots().length ? `${pots().length + 1} Ziel` : esc(S.goal?.name || '–')}</span>${ic('chevR', 'chev')}</button>
     <button class="setting" data-act="income">${ic('wallet')} Iikomme pro Monet<span class="val num">${chf(S.income)}</span>${ic('chevR', 'chev')}</button>
     <button class="setting" data-act="startday">${ic('calendar')} Budget-Monet startet am<span class="val">${S.startDay}.</span>${ic('chevR', 'chev')}</button>
   </section>
@@ -865,6 +908,7 @@ function sheetEntry(s) {
     <div class="field"><span>Kategorie</span>
       <div class="chips">${S.cats.map(c => `<button class="chip ${c.id === sel ? 'on' : ''}" data-act="pickcat" data-id="${c.id}"><span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>${esc(c.name)}</button>`).join('')}</div>
     </div>
+    ${cat(sel)?.kind === 'spar' && pots().length ? `<div class="field"><span>Wohii gaht s Gäld?</span><div class="chips">${[['auto', 'Automatisch (nach %)', 'sparkle', 'var(--accent)'], ['main', esc(S.goal?.name || 'Hauptziel'), 'target', 'var(--good)'], ...pots().map(p => [p.id, esc(p.name), p.icon || 'target', p.color])].map(([k, l, i, col]) => `<button class="chip ${(s.to || e?.to || 'auto') === k ? 'on' : ''}" data-act="pickto" data-k="${k}"><span class="ico" style="color:${col}">${ic(i)}</span>${l}</button>`).join('')}</div></div>` : ''}
     <label class="field"><span>Notiz (freiwillig)</span><input id="f-note" class="input" placeholder="z.B. Migros" value="${esc(e?.note || s.note || '')}" maxlength="60"></label>
     <label class="field"><span>Datum</span><input id="f-date" class="input" type="date" value="${e?.date || s.date || ymd(today())}" max="${ymd(today())}"></label>
     <button class="btn" data-act="saveentry">${e ? 'Speichere' : 'Iitrage'}</button>
@@ -904,6 +948,59 @@ function sheetSimple(s) {
   if (s.kind === 'import') return sheetWrap('Date wiederhärstelle', `<p class="hint" style="margin:0">Setz de gsicherti Text ii. Dini jetzige Date werded ersetzt.</p><textarea id="x-json" class="input" placeholder="{ … }"></textarea><button class="btn" data-act="doimport">Wiederhärstelle</button>`);
   if (s.kind === 'bonus') return sheetWrap('In Tresor lege', `<label class="field"><span>Betrag in CHF (so viel, wie du würkli uf s Sparkonto tuesch)</span><input id="b-val" class="input amount-input num" inputmode="decimal" value="${s.left}"></label><button class="btn" data-act="dobonus">Ab in Tresor</button>`);
   if (s.kind === 'wish') return sheetWrap('Neue Wunsch', `<label class="field"><span>Was wotsch chaufe?</span><input id="w-name" class="input" maxlength="40" placeholder="z.B. Neui Sneakers" value="${esc(s.name || '')}"></label><label class="field"><span>Was choschtet's? (CHF)</span><input id="w-price" class="input num" inputmode="decimal" value="${s.price || ''}"></label><div class="hint">Batzli fragt dich in ${WAIT_H} Stunde nomal. Vill Wünsch sind bis dänn verflogen.</div><button class="btn" data-act="savewish">Uf d Liste</button>`);
+  if (s.kind === 'pots') {
+    const GT = goalTotals(), P = plannedMonthly(), sum = potPctSum(), g = S.goal || { name: 'Sparziel', target: 0 };
+    const mainPct = Math.max(0, 100 - sum), mainPer = P * mainPct / 100, mainLeft = Math.max(0, g.target - GT.main);
+    const potCards = pots().map(p => {
+      const sv = GT.potSaved[p.id] || 0, pl = potPlan(p, sv), pp = p.target > 0 ? Math.min(1, sv / p.target) : 0;
+      const status = pl.left <= 0 ? `<span style="color:var(--good);font-weight:700">Ziel erreicht, bravo!</span>`
+        : p.due ? (pl.ok ? `<span style="color:var(--good);font-weight:700">Im Plan:</span> ${chf(pl.perMonth)} pro Monet, du bruuchsch ${chf(pl.need)}.`
+                         : `<span style="color:var(--bad);font-weight:700">Z wenig:</span> ${chf(pl.perMonth)} pro Monet, du bruuchsch ${chf(pl.need)} bis ${dueText(p.due)}.`)
+        : `Mit ${chf(pl.perMonth)} pro Monet erreichsch es ${etaText(pl.eta)}.`;
+      return `<section class="card" style="display:flex;flex-direction:column;gap:10px">
+        <div class="row"><span class="ico" style="background:color-mix(in srgb, ${p.color} 15%, transparent);color:${p.color}">${ic(p.icon || 'target')}</span>
+          <div class="grow"><b style="font-family:var(--f-display);font-size:1.08rem">${esc(p.name)}</b><div class="sub num" style="font-size:.85rem">${chf(sv)} vo ${fmt0(p.target)}${p.due ? ` · bis ${dueText(p.due)}` : ''}</div></div>
+          <button class="icon-btn" data-act="editpot" data-id="${p.id}" aria-label="${esc(p.name)} bearbeite">${ic('pencil')}</button></div>
+        <div class="bar"><span style="width:${Math.max(pp * 100, 2)}%;background:${p.color}"></span></div>
+        <div class="between"><span class="sub">Ateil vom Spare</span><span class="row" style="gap:6px">
+          <button class="icon-btn" data-act="pct" data-id="${p.id}" data-d="-5" aria-label="Weniger">−</button>
+          <b class="num" style="font-family:var(--f-display);font-size:1.25rem;min-width:56px;text-align:center">${p.pct || 0} %</b>
+          <button class="icon-btn" data-act="pct" data-id="${p.id}" data-d="5" aria-label="Meh" ${sum >= 100 ? 'disabled style="opacity:.35"' : ''}>+</button></span></div>
+        <div class="hint" style="color:var(--ink)">${status}</div>
+        ${pl.left > 0 && p.due && !pl.ok && pl.suggest && pl.suggest !== p.pct ? `<button class="btn-outline" data-act="pctset" data-id="${p.id}" data-v="${Math.min(pl.suggest, 100 - sum + (p.pct || 0))}" style="align-self:flex-start">Vorschlag: ${Math.min(pl.suggest, 100 - sum + (p.pct || 0))} % übernäh</button>` : ''}
+        ${pl.left > 0 && p.due && pl.suggest > 100 - sum + (p.pct || 0) ? `<div class="hint">Für das Ziel bruuchtisch ${pl.suggest} % vom Spare. Erhöh dis Spar-Budget oder verschieb s Datum.</div>` : ''}
+      </section>`;
+    }).join('');
+    return sheetWrap('Sparziel', `
+      <section class="card" style="display:flex;flex-direction:column;gap:6px">
+        <div class="between"><span class="sub">Din Sparplan pro Monet</span><b class="num" style="font-family:var(--f-display);font-size:1.25rem">${chf(P)}</b></div>
+        <div class="hint">Das isch s Budget vo dine «Spare»-Kategorie. Vo jedem Spar-Iitrag gaht de iigstellti Ateil is Sonderziel, de Rescht is Hauptziel.</div>
+        ${P <= 0 ? '<div class="hint" style="color:var(--bad)">Leg im Budget es Spar-Budget fest, dänn cha Batzli dir en Plan rächne.</div>' : ''}
+      </section>
+      <section class="card" style="display:flex;flex-direction:column;gap:10px">
+        <div class="row">${pig('happy').replace('class="pig', 'style="width:52px" class="pig')}<div class="grow"><div class="label" style="color:var(--good)">Hauptziel</div><b style="font-family:var(--f-display);font-size:1.08rem">${esc(g.name)}</b><div class="sub num" style="font-size:.85rem">${chf(GT.main)} vo ${fmt0(g.target)}</div></div>
+          <button class="icon-btn" data-act="goal" aria-label="Hauptziel bearbeite">${ic('pencil')}</button></div>
+        <div class="bar"><span style="width:${Math.max((g.target ? Math.min(1, GT.main / g.target) : 0) * 100, 2)}%;background:var(--good)"></span></div>
+        <div class="between"><span class="sub">Ateil vom Spare (de Rescht)</span><b class="num" style="font-family:var(--f-display);font-size:1.25rem">${mainPct} %</b></div>
+        <div class="hint" style="color:var(--ink)">${mainLeft <= 0 ? 'Ziel erreicht, bravo!' : `Mit ${chf(mainPer)} pro Monet erreichsch es ${etaText(mainPer > 0 ? Math.ceil(mainLeft / mainPer) : Infinity)}.`}</div>
+      </section>
+      ${potCards}
+      <button class="add-dashed" data-act="newpot">+ Neus Sonderziel</button>`);
+  }
+  if (s.kind === 'pot') {
+    const d = s.draft, P = plannedMonthly();
+    return sheetWrap(s.id ? 'Sonderziel bearbeite' : 'Neus Sonderziel', `
+      <label class="field"><span>Name</span><input id="p-name" class="input" maxlength="30" placeholder="z.B. Ferie Thailand" value="${esc(d.name)}"></label>
+      <div class="row"><label class="field grow"><span>Ziel (CHF)</span><input id="p-target" class="input num" inputmode="decimal" value="${d.target || ''}"></label>
+        <label class="field grow"><span>Scho gspart</span><input id="p-base" class="input num" inputmode="decimal" value="${d.base || ''}" placeholder="0"></label></div>
+      <label class="field"><span>Bis wänn? (freiwillig)</span><input id="p-due" class="input" type="month" value="${d.due || ''}" min="${ymd(today()).slice(0, 7)}"></label>
+      <label class="field"><span>Ateil vo jedem Spar-Iitrag in %</span><input id="p-pct" class="input num" inputmode="numeric" value="${d.pct ?? ''}" placeholder="z.B. 20"></label>
+      <div class="hint">${P > 0 ? `Din Sparplan isch ${chf(P)} pro Monet. 10 % sind ${chf(P / 10)} pro Monet.` : 'Leg im Budget es Spar-Budget fest, dänn rächnet Batzli dir de Plan.'} Freii %: ${100 - potPctSum() + (s.id ? (pots().find(p => p.id === s.id)?.pct || 0) : 0)} %.</div>
+      <div class="field"><span>Symbol</span><div class="icon-grid">${['plane', 'sun', 'gift', 'car', 'home', 'heart', 'game', 'phone', 'shirt', 'book', 'paw', 'target'].map(n => `<button class="${d.icon === n ? 'on' : ''}" data-act="picon" data-n="${n}" aria-label="${n}">${ic(n)}</button>`).join('')}</div></div>
+      <div class="field"><span>Farb</span><div class="swatches">${COLORS.map(col => `<button class="swatch ${d.color === col ? 'on' : ''}" style="background:${col}" data-act="pcolor" data-c="${col}" aria-label="Farb ${col}"></button>`).join('')}</div></div>
+      <button class="btn" data-act="savepot">Speichere</button>
+      ${s.id ? `<button class="btn danger ${s.armed ? 'armed' : ''}" data-act="delpot">${s.armed ? 'Sicher? S Gäld gaht zrugg is Hauptziel' : 'Sonderziel lösche'}</button>` : ''}`);
+  }
   if (s.kind === 'wipe') return sheetWrap('Alli Date lösche', `<p style="margin:0">Das löscht alli Iiträg, Kategorie und dis Sparziel uf däm Grät. Das chasch nöd rückgängig mache.</p><button class="btn danger armed" data-act="dowipe">Ja, alles lösche</button><button class="btn ghost" data-act="close">Abbräche</button>`);
   return '';
 }
@@ -959,12 +1056,17 @@ function renderSheet() {
   document.body.style.overflow = 'hidden';
 }
 let toastT;
-function toast(msg) { UI.toast = msg; renderSheet(); clearTimeout(toastT); toastT = setTimeout(() => { UI.toast = null; renderSheet(); }, 2200); }
+// toasts only touch their own element, so typed input in an open sheet survives
+function toast(msg) {
+  UI.toast = msg; layer.querySelector('.toast')?.remove(); layer.insertAdjacentHTML('beforeend', `<div class="toast">${esc(msg)}</div>`);
+  clearTimeout(toastT); toastT = setTimeout(() => { UI.toast = null; layer.querySelector('.toast')?.remove(); }, 2200);
+}
 const num = id => { const v = parseFloat(String(document.getElementById(id)?.value || '').replace(/[’' ]/g, '').replace(',', '.')); return isFinite(v) ? v : NaN; };
 const val = id => (document.getElementById(id)?.value || '').trim();
 function commit(msg) { save(); UI.sheet = null; render(); if (msg) toast(msg); }
 // keep typed values when a sheet re-renders after a chip tap
 function keepCatDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('c-name'); if (document.getElementById('c-auto')) d.autoDay = Number(val('c-auto')) || 0; const l = num('c-limit'); d.limit = isNaN(l) ? '' : l; }
+function keepPotDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('p-name'); d.target = num('p-target') || ''; d.base = num('p-base') || ''; d.due = val('p-due'); const pc = num('p-pct'); d.pct = isNaN(pc) ? 0 : pc; }
 function keepEntryDraft() { const s = UI.sheet; s.amount = val('f-amount'); s.note = val('f-note'); s.date = val('f-date'); }
 
 const PRESETS = [
@@ -995,8 +1097,11 @@ document.addEventListener('click', ev => {
       const s = UI.sheet, c = s.cat || S.entries.find(x => x.id === s.id)?.cat || S.cats.find(x => x.kind === 'var')?.id || S.cats[0]?.id;
       if (!c) { toast('Leg zersch e Kategorie aa'); break; }
       const date = val('f-date') || ymd(today());
-      if (s.id) Object.assign(S.entries.find(x => x.id === s.id), { amount: Math.round(amt * 100) / 100, cat: c, note: val('f-note'), date });
-      else S.entries.push({ id: uid(), amount: Math.round(amt * 100) / 100, cat: c, note: val('f-note'), date, ts: Date.now() });
+      const a2 = Math.round(amt * 100) / 100, isSpar = cat(c)?.kind === 'spar';
+      const to = isSpar ? (s.to || S.entries.find(x => x.id === s.id)?.to || 'auto') : undefined;
+      const extra = isSpar ? { to, split: splitFor(a2, to) } : { to: undefined, split: undefined };
+      if (s.id) Object.assign(S.entries.find(x => x.id === s.id), { amount: a2, cat: c, note: val('f-note'), date, ...extra });
+      else S.entries.push({ id: uid(), amount: a2, cat: c, note: val('f-note'), date, ts: Date.now(), ...extra });
       commit(s.id ? 'Gspeicheret' : (cat(c)?.kind === 'spar' ? 'Ab in Tresor!' : 'Iitreit'));
       break;
     }
@@ -1011,7 +1116,7 @@ document.addEventListener('click', ev => {
       let sc = S.cats.find(c => c.kind === 'spar');
       if (!sc) { sc = { id: uid(), name: 'Spare', icon: 'piggy', color: '#33B872', kind: 'spar', period: 'month', limit: 0 }; S.cats.push(sc); }
       const { key, label, end } = UI.sheet;
-      S.entries.push({ id: uid(), amount: Math.round(v * 100) / 100, cat: sc.id, note: `Monetsänd-Bonus ${label}`, date: end, ts: +parse(end) + 20 * 3600e3, bonus: true });
+      S.entries.push({ id: uid(), amount: Math.round(v * 100) / 100, cat: sc.id, note: `Monetsänd-Bonus ${label}`, date: end, ts: +parse(end) + 20 * 3600e3, bonus: true, to: 'auto', split: splitFor(Math.round(v * 100) / 100) });
       S.closedMonths = [...(S.closedMonths || []), key];
       commit('+50 XP · ab in Tresor!'); break;
     }
@@ -1029,6 +1134,30 @@ document.addEventListener('click', ev => {
       const w = wishes().find(x => x.id === el.dataset.id);
       if (w) { w.status = 'bought'; w.decided = Date.now(); save(); render(); UI.sheet = { type: 'entry', amount: w.price, note: w.name }; renderSheet(); }
       break;
+    }
+    case 'pickto': keepEntryDraft(); UI.sheet.to = el.dataset.k; renderSheet(); break;
+    case 'pots': UI.sheet = { type: 'simple', kind: 'pots' }; renderSheet(); break;
+    case 'newpot': UI.sheet = { type: 'simple', kind: 'pot', draft: { name: '', target: '', base: '', due: '', pct: Math.min(20, 100 - potPctSum()), icon: ['plane', 'gift', 'car', 'home', 'heart', 'sun'][pots().length % 6], color: COLORS[(pots().length + 4) % COLORS.length] } }; renderSheet(); break;
+    case 'editpot': { const p = pots().find(x => x.id === el.dataset.id); UI.sheet = { type: 'simple', kind: 'pot', id: p.id, draft: { ...p } }; renderSheet(); break; }
+    case 'picon': keepPotDraft(); UI.sheet.draft.icon = el.dataset.n; renderSheet(); break;
+    case 'pcolor': keepPotDraft(); UI.sheet.draft.color = el.dataset.c; renderSheet(); break;
+    case 'savepot': {
+      keepPotDraft(); const d = UI.sheet.draft, id = UI.sheet.id;
+      if (!d.name) { toast('Bitte en Name iigä'); break; }
+      if (!(d.target > 0)) { toast('Bitte es Ziel in CHF iigä'); break; }
+      const free = 100 - potPctSum() + (id ? (pots().find(p => p.id === id)?.pct || 0) : 0);
+      const rec = { name: d.name, target: d.target, base: d.base || 0, due: d.due || '', pct: Math.max(0, Math.min(free, Math.round(d.pct || 0))), icon: d.icon, color: d.color };
+      if (id) Object.assign(pots().find(p => p.id === id), rec); else pots().push({ id: uid(), ...rec });
+      save(); UI.sheet = { type: 'simple', kind: 'pots' }; render(); toast(rec.pct < (d.pct || 0) ? `Gspeicheret, uf ${rec.pct} % begrenzt` : 'Gspeicheret'); break;
+    }
+    case 'delpot':
+      if (!UI.sheet.armed) { keepPotDraft(); UI.sheet.armed = true; renderSheet(); break; }
+      S.pots = pots().filter(p => p.id !== UI.sheet.id); save(); UI.sheet = { type: 'simple', kind: 'pots' }; render(); toast('Sonderziel glöscht'); break;
+    case 'pct': case 'pctset': {
+      const p = pots().find(x => x.id === el.dataset.id); if (!p) break;
+      const free = 100 - potPctSum() + (p.pct || 0);
+      const nv = a === 'pct' ? (p.pct || 0) + Number(el.dataset.d) : Number(el.dataset.v);
+      p.pct = Math.max(0, Math.min(free, nv)); save(); render(); break;
     }
     case 'showall': UI.showAll = true; render(); break;
     case 'range': UI.range = el.dataset.r; render(); break;
@@ -1050,7 +1179,7 @@ document.addEventListener('click', ev => {
       if (!UI.sheet.armed) { keepCatDraft(); UI.sheet.armed = true; renderSheet(); break; }
       S.cats = S.cats.filter(c => c.id !== UI.sheet.id); commit('Kategorie glöscht'); break;
     case 'income': case 'name': case 'startday': case 'goal': case 'export': case 'import': case 'wipe':
-      UI.sheet = { type: 'simple', kind: a }; renderSheet(); break;
+      UI.backToPots = a === 'goal' && UI.sheet?.kind === 'pots'; UI.sheet = { type: 'simple', kind: a }; renderSheet(); break;
     case 'badge': UI.sheet = { type: 'simple', kind: 'badge', i: Number(el.dataset.i) }; renderSheet(); break;
     case 'savesimple': {
       const k = UI.sheet.kind;
@@ -1059,7 +1188,7 @@ document.addEventListener('click', ev => {
       if (k === 'startday') S.startDay = Number(val('s-val')) || 1;
       commit('Gspeicheret'); break;
     }
-    case 'savegoal': S.goal = { name: val('g-name') || 'Sparziel', target: num('g-target') || 0, base: num('g-base') || 0 }; commit('Gspeicheret'); break;
+    case 'savegoal': S.goal = { name: val('g-name') || 'Sparziel', target: num('g-target') || 0, base: num('g-base') || 0 }; if (UI.backToPots) { UI.backToPots = false; save(); UI.sheet = { type: 'simple', kind: 'pots' }; render(); toast('Gspeicheret'); } else commit('Gspeicheret'); break;
     case 'copyexport': {
       const ta = document.getElementById('x-json');
       navigator.clipboard?.writeText(ta.value).then(() => toast('Kopiert'), () => { ta.focus(); ta.select(); toast('Markiert, jetzt kopiere'); });
