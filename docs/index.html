@@ -419,7 +419,28 @@ let S = load() || demoState();
 const UI = { tab: 'home', monthOff: 0, range: 'month', showAll: false, sheet: null, toast: null };
 
 /* ---------- budget engine ---------- */
+// once paydays are logged, a budget month runs from one payday to the day before the next
 function budgetMonth(off = 0, ref = today()) {
+  const pays = (S.pays || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+  const idx = pays.filter(p => p.date <= ymd(ref)).length - 1;
+  if (idx < 0) return calMonth(off, ref);
+  const i = idx + off;
+  if (i < 0) { // before the first payday: calendar months, cut off at the first payday
+    const first = parse(pays[0].date), M = calMonth(i + 1, addDays(first, -1));
+    if (M.end >= first) { M.end = addDays(first, -1); M.days = diffDays(M.start, M.end) + 1; }
+    return M;
+  }
+  const start = parse(pays[i].date);
+  let end;
+  if (pays[i + 1]) end = addDays(parse(pays[i + 1].date), -1);
+  else { // next payday unknown: assume one month, and keep stretching while it hasn't come
+    const y = start.getFullYear(), m = start.getMonth() + 1;
+    end = addDays(new Date(y, m, Math.min(start.getDate(), new Date(y, m + 1, 0).getDate())), -1);
+    if (end < ref) end = ref;
+  }
+  return { start, end, days: diffDays(start, end) + 1, label: MON[addDays(start, 14).getMonth()], year: start.getFullYear(), income: pays[i].amount, pay: true };
+}
+function calMonth(off = 0, ref = today()) {
   const sd = Math.min(S.startDay || 1, 28);
   let y = ref.getFullYear(), m = ref.getMonth();
   if (ref.getDate() < sd) m -= 1;
@@ -651,6 +672,10 @@ function quickSection() {
   <div class="quick">${q.map((x, i) => { const c = cat(x.cat); return `<button data-act="quick" data-i="${i}"><span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>${esc(x.note || c.name)} <span class="num sub">${fmt2(x.amount)}</span></button>`; }).join('')}</div>`;
 }
 
+/* ---------- payday ---------- */
+// nudge from 3 days before the expected end of the budget month until the salary is logged
+const payDue = () => { if (S.demo) return false; const M = budgetMonth(0), t = today(); return diffDays(t, M.end) <= 3 && S.paySnooze !== ymd(t) && diffDays(M.start, t) >= 20; };
+
 /* ---------- weekly review ---------- */
 // on Sunday the current week is reviewed, otherwise the last finished week
 const reviewWeek = () => { const t = today(); return t.getDay() === 0 ? weekStart(t) : addDays(weekStart(t), -7); };
@@ -710,7 +735,7 @@ function pendingBonus() {
   const created = parse(S.created);
   if (M.end < created || (S.closedMonths || []).includes(monthKey(M))) return null;
   const out = spentBetween(M.start, M.end);
-  const left = Math.round(S.income - out);
+  const left = Math.round((M.income ?? S.income) - out);
   return left > 0 ? { M, left } : null;
 }
 function bonusCard(b, inBudget) {
@@ -816,6 +841,8 @@ function viewHome() {
   ${(() => { const b = pendingBonus(); return b ? bonusCard(b) : ''; })()}
   ${backupDue() ? `<section class="card row" style="gap:12px;flex-wrap:wrap"><span style="color:var(--accent)">${ic('download')}</span><span class="grow"><b>Zyt für dini Sicherig</b><br><small class="sub">Dini Date sind nur uf däm Handy. Letschti Sicherig: ${backupLabel()}.</small></span>
     <span class="row" style="width:100%;gap:8px"><button class="btn ghost" style="padding:11px;font-size:.95rem;border:2px solid var(--line)" data-act="backuplater">Spöter</button><button class="btn" style="padding:11px;font-size:.95rem" data-act="savefile">Jetzt sichere</button></span></section>` : ''}
+  ${payDue() ? `<section class="card row" style="gap:12px;flex-wrap:wrap"><span style="color:var(--good)">${ic('coins')}</span><span class="grow"><b>Isch din Lohn scho cho?</b><br><small class="sub">Dänn start dä neu Budget-Monet ab hüt, alles fangt wieder bi null aa.</small></span>
+    <span class="row" style="width:100%;gap:8px"><button class="btn ghost" style="padding:11px;font-size:.95rem;border:2px solid var(--line)" data-act="paylater">No nöd</button><button class="btn" style="padding:11px;font-size:.95rem;background:var(--good)" data-act="pay">Lohn iitrage</button></span></section>` : ''}
   ${reviewDue() ? `<button class="card row" data-act="review" style="border:0;text-align:left;width:100%;gap:12px">${pig('party').replace('class="pig', 'style="width:56px" class="pig')}<span class="grow"><b>Din Wuche-Rückblick isch da</b><br><small class="sub">${rangeLabel(reviewWeek(), addDays(reviewWeek(), 6))} · tipp zum Aaluege</small></span>${ic('chevR', 'chev')}</button>` : ''}
   ${S.demo ? `<button class="demo-banner" data-act="setup">${ic('sparkle')}<span class="grow"><b>Das sind Biispiil-Date.</b> Tipp do, zum dini eigete Zahle iirichte.</span>${ic('chevR', 'chev')}</button>` : ''}
   <header class="top">
@@ -942,6 +969,7 @@ function viewBudget() {
   </header>
   <section class="card" style="display:flex;flex-direction:column;gap:14px">
     <button class="income" data-act="income"><span class="row" style="gap:8px">${ic('wallet').replace('<svg', '<svg width="20" height="20"')} Iikomme</span><span class="row" style="gap:8px"><b class="num">${chf(S.income)}</b>${ic('pencil').replace('<svg', '<svg width="18" height="18"')}</span></button>
+    ${isNow ? `<button class="btn ghost" style="padding:11px;font-size:.95rem;border:2px solid var(--line)" data-act="pay">${ic('coins').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Lohn isch cho · neue Monet starte</button>` : ''}
     <div><div class="sub">${left >= 0 ? 'No übrig im Budget' : 'Übers Budget'}</div><div class="num" style="font-family:var(--f-display);font-weight:900;font-size:2.6rem;line-height:1.1;color:${left < 0 ? 'var(--bad)' : 'inherit'}">${chf(Math.abs(left))}</div></div>
     <div class="stack">${segs}</div>
     <div class="stats3"><div><small>Usgäh</small><b class="num">${fmt0(spent)}</b></div><div><small>Budget total</small><b class="num">${fmt0(total)}</b></div><div><small>Monetsänd</small><b>${isNow ? `in ${daysTo} ${daysTo === 1 ? 'Tag' : 'Täg'}` : 'vorbii'}</b></div></div>
@@ -1060,7 +1088,7 @@ function viewProfile() {
     <button class="setting" data-act="pots">${ic('target')} Sparziel & Sonderziel<span class="val">${pots().length ? `${pots().length + 1} Ziel` : esc(S.goal?.name || '–')}</span>${ic('chevR', 'chev')}</button>
     <button class="setting" data-act="recurs">${ic('repeat')} Wiederkehrendi Zahlige<span class="val">${recurs().length || '–'}</span>${ic('chevR', 'chev')}</button>
     <button class="setting" data-act="income">${ic('wallet')} Iikomme pro Monet<span class="val num">${chf(S.income)}</span>${ic('chevR', 'chev')}</button>
-    <button class="setting" data-act="startday">${ic('calendar')} Budget-Monet startet am<span class="val">${S.startDay}.</span>${ic('chevR', 'chev')}</button>
+    <button class="setting" data-act="startday">${ic('calendar')} Budget-Monet startet am<span class="val">${S.pays?.length ? 'mit Lohn-Chnopf' : `${S.startDay}.`}</span>${ic('chevR', 'chev')}</button>
   </section>
   <div class="section-label">Date</div>
   <section class="card flush">
@@ -1251,6 +1279,15 @@ function sheetSimple(s) {
       <button class="btn" data-act="saverecur">Speichere</button>
       ${s.id ? `<button class="btn ghost" data-act="rpause">${d.paused ? 'Wieder aktiviere' : 'Pausiere'}</button>
         <button class="btn danger ${s.armed ? 'armed' : ''}" data-act="delrecur">${s.armed ? 'Sicher? Bisherigi Iiträg bliibed' : 'Lösche'}</button>` : ''}`);
+  }
+  if (s.kind === 'pay') {
+    const pays = (S.pays || []).slice().sort((a, b) => b.date.localeCompare(a.date));
+    return sheetWrap('Lohn isch cho', `
+      <p style="margin:0">Ab däm Tag startet din neue Budget-Monet. Alli Budgets fanged wieder bi null aa. Dini Iiträg, Ziel und Abos bliibed.</p>
+      <label class="field"><span>Wie vill isch cho? (CHF, netto)</span><input id="pay-val" class="input amount-input num" inputmode="decimal" value="${S.income || ''}"></label>
+      <label class="field"><span>Wänn isch er cho?</span><input id="pay-date" class="input" type="date" value="${ymd(today())}" max="${ymd(today())}"></label>
+      <button class="btn" style="background:var(--good)" data-act="dopay">Neue Monet starte</button>
+      ${pays.length ? `<div class="field"><span>Bisherigi Löhn</span><section class="card flush">${pays.slice(0, 6).map(p => `<div class="entry"><span class="grow">${shortDate(p.date)} ${parse(p.date).getFullYear()}</span><span class="amt num">${fmt2(p.amount)}</span><button class="icon-btn" data-act="delpay" data-d="${p.date}" aria-label="Lösche">${ic('x')}</button></div>`).join('')}</section></div>` : ''}`);
   }
   if (s.kind === 'review') {
     const ws = addDays(reviewWeek(), -7 * (s.off || 0)), w = weekStats(ws), prev = weekStats(addDays(ws, -7));
@@ -1556,6 +1593,17 @@ document.addEventListener('click', ev => {
       S.entries.push(e); save(); render(); toast(`${q.note || cat(q.cat).name} ${fmt2(q.amount)} iitreit`, e.id); break;
     }
     case 'undo': S.entries = S.entries.filter(x => x.id !== el.dataset.id); save(); render(); toast('Rückgängig gmacht'); break;
+    case 'pay': UI.sheet = { type: 'simple', kind: 'pay' }; renderSheet(); break;
+    case 'paylater': S.paySnooze = ymd(today()); save(); render(); break;
+    case 'dopay': {
+      const v = num('pay-val'), d = val('pay-date') || ymd(today());
+      if (!(v > 0)) { toast('Bitte de Betrag iigä'); break; }
+      S.pays = (S.pays || []).filter(p => p.date !== d);
+      S.pays.push({ date: d, amount: Math.round(v * 100) / 100 });
+      S.income = Math.round(v * 100) / 100; S.startDay = Math.min(parse(d).getDate(), 28);
+      UI.monthOff = 0; commit('Neue Monet gstartet. Alles uf null!'); break;
+    }
+    case 'delpay': S.pays = (S.pays || []).filter(p => p.date !== el.dataset.d); save(); render(); break;
     case 'review': UI.sheet = { type: 'simple', kind: 'review', off: 0 }; renderSheet(); break;
     case 'revweek': UI.sheet.off = Math.max(0, (UI.sheet.off || 0) + Number(el.dataset.d)); renderSheet(); break;
     case 'reviewdone': S.reviews = [...(S.reviews || []), el.dataset.w]; commit('+20 XP. Bis nächsti Wuche!'); break;
