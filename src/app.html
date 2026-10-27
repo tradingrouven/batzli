@@ -438,6 +438,9 @@ const cat = id => S.cats.find(c => c.id === id);
 const inRange = (e, a, b) => e.date >= ymd(a) && e.date <= ymd(b);
 const spentBetween = (a, b, pred = () => true) => S.entries.reduce((s, e) => inRange(e, a, b) && pred(e) ? s + e.amount : s, 0);
 const isExpense = e => { const c = cat(e.cat); return !c || c.kind !== 'spar'; };
+// flexible categories (e.g. saving, trading) have a target, not a commitment: only what was really paid counts
+const isFlex = c => c.flex && c.kind !== 'var';
+const planEquiv = (c, M) => isFlex(c) ? spentBetween(M.start, M.end, e => e.cat === c.id) : monthEquiv(c, M.days);
 const monthEquiv = (c, days) => c.period === 'day' ? c.limit * days : c.period === 'week' ? c.limit * days / 7 : c.limit;
 
 function compute() {
@@ -475,7 +478,7 @@ function compute() {
   const weekLeft = varRows.reduce((s, r) => s + r.weekLeft, 0);
   const monthSpent = spentBetween(M.start, M.end, isExpense);
   const monthSaved = spentBetween(M.start, M.end, e => !isExpense(e));
-  const budgetTotal = S.cats.reduce((s, c) => s + monthEquiv(c, M.days), 0);
+  const budgetTotal = S.cats.reduce((s, c) => s + planEquiv(c, M), 0);
   const monthOut = monthSpent + monthSaved;
   const leftInBudget = budgetTotal - monthOut;
   // pace forecast: fixed + savings as planned, variable at current daily pace
@@ -483,7 +486,7 @@ function compute() {
   const varSpent = spentBetween(tracked, t, e => cat(e.cat)?.kind === 'var');
   const varPace = varSpent / elapsed * (diffDays(tracked, M.end) + 1);
   const varSpentBeforeTracked = spentBetween(M.start, addDays(tracked, -1), e => cat(e.cat)?.kind === 'var');
-  const plannedFixed = S.cats.filter(c => c.kind !== 'var').reduce((s, c) => s + Math.max(c.limit, spentBetween(M.start, M.end, e => e.cat === c.id)), 0);
+  const plannedFixed = S.cats.filter(c => c.kind !== 'var').reduce((s, c) => s + Math.max(isFlex(c) ? 0 : c.limit, spentBetween(M.start, M.end, e => e.cat === c.id)), 0);
   const forecast = S.income - plannedFixed - varPace - varSpentBeforeTracked;
   const saved = (S.goal?.base || 0) + pots().reduce((a, p) => a + (p.base || 0), 0) + S.entries.reduce((s, e) => !isExpense(e) ? s + e.amount : s, 0);
   const GT = goalTotals();
@@ -892,12 +895,14 @@ function catRow(r, opts = {}) {
   const c = r.c;
   const pct = r.limit > 0 ? Math.min(100, Math.max(0, r.used * 100)) : 0;
   const color = r.left < 0 ? 'var(--bad)' : c.color;
-  const leftTxt = c.kind === 'fix' && r.left <= 0.5 && r.left >= -0.5 ? '<span style="color:var(--muted)">Zahlt</span>'
+  const leftTxt = isFlex(c) ? `<span style="color:${c.kind === 'spar' ? 'var(--good)' : 'var(--ink)'}">${fmt0(r.spent)} ${c.kind === 'spar' ? 'gspart' : 'zahlt'}</span>`
+    : c.kind === 'fix' && r.left <= 0.5 && r.left >= -0.5 ? '<span style="color:var(--muted)">Zahlt</span>'
     : c.kind === 'spar' ? `<span style="color:var(--good)">${fmt0(r.spent)} gspart</span>`
     : r.left < 0 ? `<span style="color:var(--bad)">${fmt0(-r.left)} drüber</span>`
     : `<span style="color:var(--good)">${fmt0(r.left)} übrig</span>`;
-  const per = c.kind === 'var' ? { day: 'pro Tag', week: 'pro Wuche', month: 'pro Monet' }[c.period] : c.kind === 'fix' ? 'Fixkoste' : 'Spare';
-  const meta = c.kind === 'var' && c.period === 'day'
+  const per = c.kind === 'var' ? { day: 'pro Tag', week: 'pro Wuche', month: 'pro Monet' }[c.period] : isFlex(c) ? 'Flexibel' : c.kind === 'fix' ? 'Fixkoste' : 'Spare';
+  const meta = isFlex(c) ? `${c.limit > 0 ? `Ziel ${fmt0(c.limit)} CHF · ` : ''}${r.limit > 0 && r.spent >= r.limit ? 'Ziel erreicht!' : 'was drin liit, isch guet'}`
+    : c.kind === 'var' && c.period === 'day'
     ? `Hüt ${fmt0(r.spent)} usgäh · ${fmt0(c.limit)} pro Tag`
     : `${fmt0(r.spent)} vo ${fmt0(r.limit)} CHF ${c.kind === 'var' ? (c.period === 'week' ? 'die Wuche' : 'de Monet') : ''}${c.kind === 'fix' && c.autoDay ? ` · automatisch am ${c.autoDay}.` : ''}`;
   const dayPct = c.kind === 'var' && c.period === 'day' ? Math.min(100, Math.max(0, (1 - r.left / Math.max(c.limit, 1)) * 100)) : pct;
@@ -941,7 +946,7 @@ function viewBudget() {
   let rows, spent, total;
   if (isNow) { rows = C.rows; total = C.budgetTotal; spent = C.monthSpent + C.monthSaved; }
   else {
-    rows = S.cats.map(c => { const s = spentBetween(M.start, M.end, e => e.cat === c.id); const l = monthEquiv(c, M.days); return { c: { ...c, period: 'month' }, spent: s, limit: l, left: l - s, used: l ? s / l : 0 }; });
+    rows = S.cats.map(c => { const s = spentBetween(M.start, M.end, e => e.cat === c.id); const l = planEquiv(c, M); return { c: { ...c, period: 'month' }, spent: s, limit: l, left: l - s, used: l ? s / l : 0 }; });
     total = rows.reduce((s, r) => s + r.limit, 0); spent = rows.reduce((s, r) => s + r.spent, 0);
   }
   const left = total - spent;
@@ -997,7 +1002,7 @@ function viewAnalyse() {
   const C = compute();
   const t = C.t, r = UI.range;
   const varMonth = S.cats.filter(c => c.kind === 'var').reduce((s, c) => s + monthEquiv(c, C.M.days), 0);
-  const allMonth = S.cats.filter(c => c.kind !== 'spar').reduce((s, c) => s + monthEquiv(c, C.M.days), 0);
+  const allMonth = S.cats.filter(c => c.kind !== 'spar').reduce((s, c) => s + planEquiv(c, C.M), 0);
   let bars = [], line = 0, lineLabel = 'Budget', from, to, title;
   if (r === 'week') {
     from = C.ws; to = addDays(from, 6); title = 'Die Wuche';
@@ -1121,10 +1126,12 @@ function sheetCat(s) {
       <div class="hint">${d.kind === 'var' ? 'Gäld, wo du frei usgisch. Zählt für «Hüt chasch no usgäh».' : d.kind === 'fix' ? 'Feschti Rächnige wie Miete oder Krankekasse. Zählt nöd is Tagesbudget.' : 'Was du uf d Siite leisch. Gaht direkt i dis Sparziel.'}</div></div>
     ${d.kind === 'var' ? `<div class="field"><span>Budget pro</span><div class="seg">${[['day', 'Tag'], ['week', 'Wuche'], ['month', 'Monet']].map(([k, l]) => `<button class="${d.period === k ? 'on' : ''}" data-act="cperiod" data-k="${k}">${l}</button>`).join('')}</div>
       ${d.period === 'day' ? '<div class="hint">Was du amne Tag nöd bruuchsch, chasch spöter im Monet no usgäh.</div>' : ''}</div>` : ''}
-    ${d.kind === 'fix' ? `<div class="field"><span>Automatisch iitrage</span>
+    ${d.kind !== 'var' ? `<div class="field"><span>Betrag</span><div class="seg">${[[false, 'Fix jede Monet'], [true, 'Flexibel']].map(([k, l]) => `<button class="${!!d.flex === k ? 'on' : ''}" data-act="cflex" data-k="${k ? 1 : 0}">${l}</button>`).join('')}</div>
+      <div class="hint">${d.flex ? "De Betrag isch nur es Ziel. Im Budget zählt nur, was du würkli iitreisch, z.B. bi Trading oder wänn's nöd jede Monet glangt." : 'De Betrag wird jede Monet fescht iiplant.'}</div></div>` : ''}
+    ${d.kind === 'fix' && !d.flex ? `<div class="field"><span>Automatisch iitrage</span>
       <select id="c-auto" class="input"><option value="0" ${!d.autoDay ? 'selected' : ''}>Nei, ich trag's sälber ii</option>${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${d.autoDay === i + 1 ? 'selected' : ''}>Jede Monet am ${i + 1}.</option>`).join('')}</select>
       <div class="hint">Batzli treit dä Betrag jede Monet am gwählte Tag sälber ii.</div></div>` : ''}
-    <label class="field"><span>${d.kind === 'spar' ? 'Spar-Ziel pro Monet' : 'Budget'} in CHF${d.kind === 'var' ? ` pro ${{ day: 'Tag', week: 'Wuche', month: 'Monet' }[d.period]}` : ' pro Monet'}</span><input id="c-limit" class="input num" inputmode="decimal" value="${d.limit || ''}" placeholder="0"></label>
+    <label class="field"><span>${d.kind !== 'var' && d.flex ? 'Wunsch-Betrag (freiwillig)' : d.kind === 'spar' ? 'Spar-Ziel pro Monet' : 'Budget'} in CHF${d.kind === 'var' ? ` pro ${{ day: 'Tag', week: 'Wuche', month: 'Monet' }[d.period]}` : ' pro Monet'}</span><input id="c-limit" class="input num" inputmode="decimal" value="${d.limit || ''}" placeholder="0"></label>
     <div class="field"><span>Symbol</span><div class="icon-grid">${CAT_ICONS.map(n => `<button class="${d.icon === n ? 'on' : ''}" data-act="cicon" data-n="${n}" aria-label="${n}">${ic(n)}</button>`).join('')}</div></div>
     <div class="field"><span>Farb</span><div class="swatches">${COLORS.map(col => `<button class="swatch ${d.color === col ? 'on' : ''}" style="background:${col}" data-act="ccolor" data-c="${col}" aria-label="Farb ${col}"></button>`).join('')}</div></div>
     <button class="btn" data-act="savecat">Speichere</button>
@@ -1333,7 +1340,7 @@ function autoBook() {
   const t = today(), created = parse(S.created);
   let added = 0;
   S.cats.forEach(c => {
-    if (c.kind !== 'fix' || !c.autoDay || !(c.limit > 0)) return;
+    if (c.kind !== 'fix' || c.flex || !c.autoDay || !(c.limit > 0)) return;
     for (let d = new Date(created.getFullYear(), created.getMonth(), 1); d <= t; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
       const due = new Date(d.getFullYear(), d.getMonth(), c.autoDay);
       const key = `${c.id}-${due.getFullYear()}-${pad(due.getMonth() + 1)}`;
@@ -1539,14 +1546,17 @@ document.addEventListener('click', ev => {
     case 'newcat': UI.sheet = { type: 'cat', draft: { name: '', icon: 'dots', color: COLORS[S.cats.length % COLORS.length], kind: 'var', period: 'month', limit: '' } }; renderSheet(); break;
     case 'editcat': { const c = cat(el.dataset.id); UI.sheet = { type: 'cat', id: c.id, draft: { ...c }, back: backable() }; renderSheet(); break; }
     case 'ckind': keepCatDraft(); UI.sheet.draft.kind = el.dataset.k; if (el.dataset.k !== 'var') UI.sheet.draft.period = 'month'; renderSheet(); break;
+    case 'cflex': keepCatDraft(); UI.sheet.draft.flex = el.dataset.k === '1'; renderSheet(); break;
     case 'cperiod': keepCatDraft(); UI.sheet.draft.period = el.dataset.k; renderSheet(); break;
     case 'cicon': keepCatDraft(); UI.sheet.draft.icon = el.dataset.n; renderSheet(); break;
     case 'ccolor': keepCatDraft(); UI.sheet.draft.color = el.dataset.c; renderSheet(); break;
     case 'savecat': {
       keepCatDraft(); const d = UI.sheet.draft;
       if (!d.name) { toast('Bitte en Name iigä'); break; }
+      const flex = d.kind !== 'var' && !!d.flex;
+      if (flex && d.limit === '') d.limit = 0;
       if (!(d.limit >= 0) || d.limit === '') { toast('Bitte es Budget iigä'); break; }
-      const rec = { name: d.name, icon: d.icon, color: d.color, kind: d.kind, period: d.kind === 'var' ? d.period : 'month', limit: d.limit, autoDay: d.kind === 'fix' ? (d.autoDay || 0) : 0 };
+      const rec = { name: d.name, icon: d.icon, color: d.color, kind: d.kind, period: d.kind === 'var' ? d.period : 'month', limit: d.limit, flex, autoDay: d.kind === 'fix' && !flex ? (d.autoDay || 0) : 0 };
       if (UI.sheet.id) Object.assign(cat(UI.sheet.id), rec); else S.cats.push({ id: uid(), ...rec });
       commit('Gspeicheret'); break;
     }
