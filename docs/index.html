@@ -139,7 +139,12 @@ h2 { font-family: var(--f-display); font-weight: 900; font-size: 1.45rem; margin
 
 /* category rows */
 .cat { display: flex; align-items: center; gap: 14px; padding: 15px 18px; border: 0; background: none; width: 100%; text-align: left; }
-.cat + .cat { border-top: 1px solid var(--line); }
+.cat + .cat, .grp-head + .cat, .cat + .grp-head, .grp-head + .grp-head { border-top: 1px solid var(--line); }
+.grp-head { display: flex; align-items: center; }
+.grp-head > .cat { flex: 1; min-width: 0; }
+.grp-edit { flex-shrink: 0; width: 44px; height: 44px; margin-right: 8px; border: 0; border-radius: 12px; background: var(--track); color: var(--muted); display: grid; place-items: center; }
+.grp-body { border-top: 1px solid var(--line); background: color-mix(in srgb, var(--track) 45%, transparent); }
+.grp-body .cat { padding-left: 30px; }
 .ico { width: 46px; height: 46px; border-radius: 14px; display: grid; place-items: center; flex: none; }
 .ico svg { width: 24px; height: 24px; }
 .cat .meta { font-size: .88rem; color: var(--muted); margin-top: 5px; }
@@ -311,6 +316,7 @@ const P = {
   dots: '<circle cx="5.5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18.5" cy="12" r="1.2"/>',
   chevL: '<path d="m15 18-6-6 6-6"/>',
   chevR: '<path d="m9 18 6-6-6-6"/>',
+  chevD: '<path d="m6 9 6 6 6-6"/>',
   pencil: '<path d="M4 20h4L19.5 8.5l-4-4L4 16z"/><path d="m13.5 6.5 4 4"/>',
   trash: '<path d="M4 7h16M9.5 7V4h5v3M6 7l1 13h10l1-13"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
@@ -325,6 +331,7 @@ const P = {
   upload: '<path d="M12 15.5v-11M7 9l5-5 5 5"/><path d="M4.5 19.5h15"/>',
   coins: '<ellipse cx="9" cy="7" rx="5.5" ry="2.5"/><path d="M3.5 7v4c0 1.4 2.5 2.5 5.5 2.5s5.5-1.1 5.5-2.5V7"/><path d="M9.5 15.4c.9 1.2 3.1 2.1 5.5 2.1 3 0 5.5-1.1 5.5-2.5v-4c0-1.2-1.7-2.2-4.3-2.4"/><path d="M14.5 13.4c1.8-.1 3.8-.8 5.7-1.9"/>',
   sparkle: '<path d="M12 3c.6 4.4 2.6 6.4 7 7-4.4.6-6.4 2.6-7 7-.6-4.4-2.6-6.4-7-7 4.4-.6 6.4-2.6 7-7z"/><path d="M19 16.5c.2 1.4.9 2.1 2.3 2.3-1.4.2-2.1.9-2.3 2.3-.2-1.4-.9-2.1-2.3-2.3 1.4-.2 2.1-.9 2.3-2.3z"/>',
+  folder: '<path d="M3.5 7a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2V18a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
 };
 const ic = (n, cls = '') => `<svg class="${cls}" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[n] || P.dots}</svg>`;
@@ -388,11 +395,11 @@ function demoState() {
   const t = today();
   const start = addDays(t, -16);
   const cats = [
-    { id: 'essen', name: 'Essen', icon: 'food', color: '#F07A62', kind: 'var', period: 'day', limit: 15 },
+    { id: 'essen', name: 'Essen', icon: 'food', color: '#F07A62', kind: 'var', period: 'day', limit: 15, group: 'g-usg' },
     { id: 'uusgang', name: 'Uusgang', icon: 'glass', color: '#E06FA4', kind: 'var', period: 'week', limit: 70 },
-    { id: 'transport', name: 'Transport', icon: 'train', color: '#8E7CF0', kind: 'var', period: 'month', limit: 120 },
+    { id: 'transport', name: 'Transport', icon: 'train', color: '#8E7CF0', kind: 'var', period: 'month', limit: 120, group: 'g-usg' },
     { id: 'shopping', name: 'Shopping', icon: 'shirt', color: '#E8A23A', kind: 'var', period: 'month', limit: 150 },
-    { id: 'handy', name: 'Handy & Abos', icon: 'phone', color: '#5B6CF0', kind: 'fix', period: 'month', limit: 90 },
+    { id: 'handy', name: 'Handy & Abos', icon: 'phone', color: '#5B6CF0', kind: 'fix', period: 'month', limit: 90, group: 'g-usg' },
     { id: 'kk', name: 'Krankekasse', icon: 'shield', color: '#49A6C9', kind: 'fix', period: 'month', limit: 333 },
     { id: 'wohne', name: 'Wohne', icon: 'home', color: '#6CC08A', kind: 'fix', period: 'month', limit: 1500 },
     { id: 'spare', name: 'Spare', icon: 'piggy', color: '#33B872', kind: 'spar', period: 'month', limit: 800 },
@@ -412,6 +419,7 @@ function demoState() {
     v: 1, demo: true, name: 'Rouven', income: 5500, startDay: 1, created: ymd(start),
     goal: { name: 'Eigeti Wohnig', target: 36000, base: 400 },
     cats, entries: e, checkins,
+    groups: [{ id: 'g-usg', name: 'Usgabe', limit: 700, color: '#F07A62' }],
   };
 }
 
@@ -456,7 +464,25 @@ const isExpense = e => { const c = cat(e.cat); return !c || c.kind !== 'spar'; }
 // flexible categories (e.g. saving, trading) have a target, not a commitment: only what was really paid counts
 const isFlex = c => c.flex && c.kind !== 'var';
 const planEquiv = (c, M) => isFlex(c) ? spentBetween(M.start, M.end, e => e.cat === c.id) : monthEquiv(c, M.days);
+// a folder with a limit plans exactly that limit, instead of the sum of its categories
+const planTotal = M => S.cats.filter(c => !(inGroup(c)?.limit > 0)).reduce((s, c) => s + planEquiv(c, M), 0) + groups().filter(g => g.limit > 0 && S.cats.some(c => c.group === g.id)).reduce((s, g) => s + g.limit, 0);
 const monthEquiv = (c, days) => c.period === 'day' ? c.limit * days : c.period === 'week' ? c.limit * days / 7 : c.limit;
+
+/* ---------- category folders: several categories share one monthly limit ---------- */
+const groups = () => S.groups || (S.groups = []);
+const grp = id => groups().find(g => g.id === id);
+const inGroup = c => c.group && grp(c.group) ? grp(c.group) : null;
+// a variable category without its own limit lives from its folder's limit
+const isPool = c => c.kind === 'var' && !(c.limit > 0) && (inGroup(c)?.limit > 0);
+function groupStats(g, M) {
+  const members = S.cats.filter(c => c.group === g.id);
+  const spent = spentBetween(M.start, M.end, e => members.some(c => c.id === e.cat));
+  const limit = g.limit || 0;
+  // what the folder still has for categories without own limit
+  const free = limit - members.filter(c => !isPool(c)).reduce((t, c) => t + Math.max(planEquiv(c, M), spentBetween(M.start, M.end, e => e.cat === c.id)), 0)
+    - spentBetween(M.start, M.end, e => members.some(c => c.id === e.cat && isPool(c)));
+  return { g, members, spent, limit, left: limit - spent, used: limit > 0 ? spent / limit : 0, free };
+}
 
 function compute() {
   const t = today();
@@ -467,7 +493,10 @@ function compute() {
   const daysLeftWeek = Math.min(diffDays(t, we), diffDays(t, M.end)) + 1;
   const rows = S.cats.map(c => {
     let spent, limit, left, periodLabel, todayLeft = 0, weekLeft = 0;
-    if (c.kind === 'var' && c.period === 'day') {
+    if (isPool(c)) {
+      spent = spentBetween(M.start, M.end, e => e.cat === c.id);
+      limit = 0; left = 0; periodLabel = 'de Monet';
+    } else if (c.kind === 'var' && c.period === 'day') {
       const days = diffDays(tracked, t) + 1;
       spent = spentBetween(t, t, e => e.cat === c.id);
       const spentSince = spentBetween(tracked, t, e => e.cat === c.id);
@@ -488,12 +517,14 @@ function compute() {
     const used = limit > 0 ? (limit - left) / limit : 0;
     return { c, spent, limit, left, used, periodLabel, todayLeft, weekLeft };
   });
+  const G = groups().map(g => groupStats(g, M));
+  const pools = G.filter(x => x.limit > 0 && x.members.some(isPool));
   const varRows = rows.filter(r => r.c.kind === 'var');
-  const todayLeft = varRows.reduce((s, r) => s + r.todayLeft, 0);
-  const weekLeft = varRows.reduce((s, r) => s + r.weekLeft, 0);
+  const todayLeft = varRows.reduce((s, r) => s + r.todayLeft, 0) + pools.reduce((s, x) => s + x.free / daysLeftMonth, 0);
+  const weekLeft = varRows.reduce((s, r) => s + r.weekLeft, 0) + pools.reduce((s, x) => s + x.free * daysLeftWeek / daysLeftMonth, 0);
   const monthSpent = spentBetween(M.start, M.end, isExpense);
   const monthSaved = spentBetween(M.start, M.end, e => !isExpense(e));
-  const budgetTotal = S.cats.reduce((s, c) => s + planEquiv(c, M), 0);
+  const budgetTotal = planTotal(M);
   const monthOut = monthSpent + monthSaved;
   const leftInBudget = budgetTotal - monthOut;
   // pace forecast: fixed + savings as planned, variable at current daily pace
@@ -505,7 +536,7 @@ function compute() {
   const forecast = S.income - plannedFixed - varPace - varSpentBeforeTracked;
   const saved = (S.goal?.base || 0) + pots().reduce((a, p) => a + (p.base || 0), 0) + S.entries.reduce((s, e) => !isExpense(e) ? s + e.amount : s, 0);
   const GT = goalTotals();
-  return { t, M, rows, todayLeft, weekLeft, daysLeftMonth, daysLeftWeek, monthSpent, monthSaved, budgetTotal, leftInBudget, forecast, saved, ws, GT };
+  return { t, M, rows, G, todayLeft, weekLeft, daysLeftMonth, daysLeftWeek, monthSpent, monthSaved, budgetTotal, leftInBudget, forecast, saved, ws, GT };
 }
 
 /* ---------- savings goals: main goal + special goals (pots) ---------- */
@@ -834,7 +865,8 @@ function buddyText(C, st) {
 function viewHome() {
   const C = compute(), st = streakInfo(), xi = xpInfo();
   const t = C.t;
-  const tight = C.rows.filter(r => r.limit > 0 && r.c.kind === 'var').sort((a, b) => b.used - a.used).slice(0, 3);
+  const tight = [...C.rows.filter(r => r.limit > 0 && r.c.kind === 'var').map(r => ({ u: r.used, h: catRow(r) })),
+    ...C.G.filter(x => x.limit > 0 && x.members.length).map(x => ({ u: x.used, h: grpRow(x, { act: 'tab' }) }))].sort((a, b) => b.u - a.u).slice(0, 3);
   const ws = C.ws;
   const dots = WD2.map((n, i) => { const d = addDays(ws, i); return `<div><i class="${st.act.has(ymd(d)) ? 'on' : ''} ${ymd(d) === ymd(t) ? 'today' : ''}"></i><small>${n}</small></div>`; }).join('');
   const g = S.goal || { name: 'Sparziel', target: 1000 };
@@ -899,7 +931,7 @@ function viewHome() {
 
   ${chalSection()}
   <div class="between" style="margin-top:8px"><h2>Wo's knapp wird</h2><button class="link" data-act="tab" data-tab="budget">Alli Kategorie</button></div>
-  <section class="card flush">${tight.map(catRow).join('') || '<div class="empty">No kei Kategorie.</div>'}</section>
+  <section class="card flush">${tight.map(x => x.h).join('') || '<div class="empty">No kei Kategorie.</div>'}</section>
 
   <div class="between" style="margin-top:8px"><h2>Letschti Iiträg</h2><button class="link" data-act="tab" data-tab="budget">Alli aaluege</button></div>
   <section class="card flush">${entryList(S.entries.slice().sort((a, b) => b.ts - a.ts).slice(0, 4))}</section>
@@ -910,13 +942,14 @@ function catRow(r, opts = {}) {
   const c = r.c;
   const pct = r.limit > 0 ? Math.min(100, Math.max(0, r.used * 100)) : 0;
   const color = r.left < 0 ? 'var(--bad)' : c.color;
-  const leftTxt = isFlex(c) ? `<span style="color:${c.kind === 'spar' ? 'var(--good)' : 'var(--ink)'}">${fmt0(r.spent)} ${c.kind === 'spar' ? 'gspart' : 'zahlt'}</span>`
+  const pool = isPool(c);
+  const leftTxt = pool ? `<span style="color:var(--ink)">${fmt0(r.spent)} usgäh</span>` : isFlex(c) ? `<span style="color:${c.kind === 'spar' ? 'var(--good)' : 'var(--ink)'}">${fmt0(r.spent)} ${c.kind === 'spar' ? 'gspart' : 'zahlt'}</span>`
     : c.kind === 'fix' && r.left <= 0.5 && r.left >= -0.5 ? '<span style="color:var(--muted)">Zahlt</span>'
     : c.kind === 'spar' ? `<span style="color:var(--good)">${fmt0(r.spent)} gspart</span>`
     : r.left < 0 ? `<span style="color:var(--bad)">${fmt0(-r.left)} drüber</span>`
     : `<span style="color:var(--good)">${fmt0(r.left)} übrig</span>`;
-  const per = c.kind === 'var' ? { day: 'pro Tag', week: 'pro Wuche', month: 'pro Monet' }[c.period] : isFlex(c) ? 'Flexibel' : c.kind === 'fix' ? 'Fixkoste' : 'Spare';
-  const meta = isFlex(c) ? `${c.limit > 0 ? `Ziel ${fmt0(c.limit)} CHF · ` : ''}${r.limit > 0 && r.spent >= r.limit ? 'Ziel erreicht!' : 'was drin liit, isch guet'}`
+  const per = pool ? 'Ordner-Limit' : c.kind === 'var' ? { day: 'pro Tag', week: 'pro Wuche', month: 'pro Monet' }[c.period] : isFlex(c) ? 'Flexibel' : c.kind === 'fix' ? 'Fixkoste' : 'Spare';
+  const meta = pool ? `${fmt0(r.spent)} CHF de Monet · zählt is Limit vo «${esc(inGroup(c).name)}»` : isFlex(c) ? `${c.limit > 0 ? `Ziel ${fmt0(c.limit)} CHF · ` : ''}${r.limit > 0 && r.spent >= r.limit ? 'Ziel erreicht!' : 'was drin liit, isch guet'}`
     : c.kind === 'var' && c.period === 'day'
     ? `Hüt ${fmt0(r.spent)} usgäh · ${fmt0(c.limit)} pro Tag`
     : `${fmt0(r.spent)} vo ${fmt0(r.limit)} CHF ${c.kind === 'var' ? (c.period === 'week' ? 'die Wuche' : 'de Monet') : ''}${c.kind === 'fix' && c.autoDay ? ` · automatisch am ${c.autoDay}.` : ''}`;
@@ -925,11 +958,42 @@ function catRow(r, opts = {}) {
     <span class="ico" style="background:color-mix(in srgb, ${c.color} 15%, transparent);color:${c.color}">${ic(c.icon)}</span>
     <span class="grow">
       <span class="between"><b>${esc(c.name)}${opts.tag ? `<span class="tag">${per}</span>` : ''}</b><span class="left num">${leftTxt}</span></span>
-      <span class="bar thin" style="margin-top:8px;display:block"><span style="width:${c.kind === 'var' && c.period === 'day' ? dayPct : pct}%;background:${color}"></span></span>
+      ${pool ? '' : `<span class="bar thin" style="margin-top:8px;display:block"><span style="width:${c.kind === 'var' && c.period === 'day' ? dayPct : pct}%;background:${color}"></span></span>`}
       <span class="meta num" style="display:block">${meta}</span>
     </span>
     ${opts.chev ? ic('chevR', 'chev') : ''}
   </button>`;
+}
+
+function grpRow(x, opts = {}) {
+  const g = x.g, open = !(UI.grpShut || []).includes(g.id), col = g.color || 'var(--accent)';
+  const pct = x.limit > 0 ? Math.min(100, x.used * 100) : 0;
+  const leftTxt = !(x.limit > 0) ? `<span style="color:var(--ink)">${fmt0(x.spent)} usgäh</span>`
+    : x.left < 0 ? `<span style="color:var(--bad)">${fmt0(-x.left)} drüber</span>` : `<span style="color:var(--good)">${fmt0(x.left)} übrig</span>`;
+  const meta = x.limit > 0 ? `${fmt0(x.spent)} vo ${fmt0(x.limit)} CHF de Monet · ${x.members.length} ${x.members.length === 1 ? 'Kategorie' : 'Kategorie'}` : `${x.members.length} Kategorie · kei Limit`;
+  return `<div class="grp-head">
+    <button class="cat" data-act="${opts.act || 'grptoggle'}" data-id="${g.id}" data-tab="budget" aria-expanded="${open}">
+      <span class="ico" style="background:color-mix(in srgb, ${col} 15%, transparent);color:${col}">${ic('folder')}</span>
+      <span class="grow">
+        <span class="between"><b>${esc(g.name)}</b><span class="left num">${leftTxt}</span></span>
+        ${x.limit > 0 ? `<span class="bar thin" style="margin-top:8px;display:block"><span style="width:${pct}%;background:${x.left < 0 ? 'var(--bad)' : col}"></span></span>` : ''}
+        <span class="meta num" style="display:block">${meta}</span>
+      </span>
+      ${opts.act ? ic('chevR', 'chev') : ic(open ? 'chevD' : 'chevR', 'chev')}
+    </button>
+    ${opts.act ? '' : `<button class="grp-edit" data-act="editgrp" data-id="${g.id}" aria-label="Ordner bearbeite">${ic('pencil').replace('<svg', '<svg width="18" height="18"')}</button>`}
+  </div>`;
+}
+// Budget category list: folders first (with their categories inside), then the rest
+function catSections(rows, G) {
+  const out = G.map(x => {
+    const open = !(UI.grpShut || []).includes(x.g.id);
+    const mine = rows.filter(r => r.c.group === x.g.id);
+    return `<section class="card flush grp">${grpRow(x)}${open ? (mine.length ? `<div class="grp-body">${mine.map(r => catRow(r, { tag: true, chev: true })).join('')}</div>` : '<div class="empty" style="padding:14px 18px">No leer. Tipp uf de Stift zum Kategorie drii tue.</div>') : ''}</section>`;
+  });
+  const rest = rows.filter(r => !inGroup(r.c));
+  if (rest.length) out.push(`<section class="card flush">${rest.map(r => catRow(r, { tag: true, chev: true })).join('')}</section>`);
+  return out.join('');
 }
 
 function entryList(list, empty = 'No kei Iiträg. Drück uf s Plus unde.') {
@@ -958,11 +1022,12 @@ function viewBudget() {
   const M = budgetMonth(UI.monthOff);
   const isNow = UI.monthOff === 0;
   const C = compute();
-  let rows, spent, total;
-  if (isNow) { rows = C.rows; total = C.budgetTotal; spent = C.monthSpent + C.monthSaved; }
+  let rows, spent, total, G;
+  if (isNow) { rows = C.rows; G = C.G; total = C.budgetTotal; spent = C.monthSpent + C.monthSaved; }
   else {
     rows = S.cats.map(c => { const s = spentBetween(M.start, M.end, e => e.cat === c.id); const l = planEquiv(c, M); return { c: { ...c, period: 'month' }, spent: s, limit: l, left: l - s, used: l ? s / l : 0 }; });
-    total = rows.reduce((s, r) => s + r.limit, 0); spent = rows.reduce((s, r) => s + r.spent, 0);
+    total = planTotal(M); spent = rows.reduce((s, r) => s + r.spent, 0);
+    G = groups().map(g => groupStats(g, M));
   }
   const left = total - spent;
   const segs = rows.filter(r => r.spent > 0).map(r => `<span style="width:${(r.spent / Math.max(total, spent)) * 100}%;background:${r.c.color}"></span>`).join('');
@@ -982,8 +1047,8 @@ function viewBudget() {
   </section>
   ${(() => { const b = pendingBonus(); return b && UI.monthOff === -1 ? bonusCard(b, true) : ''; })()}
   <div class="between" style="margin-top:8px"><h2>Kategorie</h2></div>
-  <section class="card flush">${rows.map(r => catRow(r, { tag: true, chev: true })).join('')}</section>
-  <button class="add-dashed" data-act="newcat">+ Neui Kategorie</button>
+  ${catSections(rows, G)}
+  <div class="row" style="gap:10px"><button class="add-dashed" data-act="newcat">+ Kategorie</button><button class="add-dashed" data-act="newgrp">${ic('folder').replace('<svg', '<svg width="18" height="18" style="vertical-align:-3px"')} Ordner</button></div>
   ${isNow ? wishSection() : ''}
   <div class="between" style="margin-top:8px"><h2>Iiträg im ${M.label}</h2><span class="sub">${entries.length}</span></div>
   <section class="card flush">${entryList(UI.showAll ? entries : entries.slice(0, 8))}</section>
@@ -1147,6 +1212,8 @@ function sheetCat(s) {
       <select id="c-auto" class="input"><option value="0" ${!d.autoDay ? 'selected' : ''}>Nei, ich trag's sälber ii</option>${Array.from({ length: 28 }, (_, i) => `<option value="${i + 1}" ${d.autoDay === i + 1 ? 'selected' : ''}>Jede Monet am ${i + 1}.</option>`).join('')}</select>
       <div class="hint">Batzli treit dä Betrag jede Monet am gwählte Tag sälber ii.</div></div>` : ''}
     <label class="field"><span>${d.kind !== 'var' && d.flex ? 'Wunsch-Betrag (freiwillig)' : d.kind === 'spar' ? 'Spar-Ziel pro Monet' : 'Budget'} in CHF${d.kind === 'var' ? ` pro ${{ day: 'Tag', week: 'Wuche', month: 'Monet' }[d.period]}` : ' pro Monet'}</span><input id="c-limit" class="input num" inputmode="decimal" value="${d.limit || ''}" placeholder="0"></label>
+    ${groups().length ? `<div class="field"><span>Ordner</span><div class="chips">${[['', 'Kei Ordner', 'x', 'var(--muted)'], ...groups().map(g => [g.id, esc(g.name), 'folder', g.color || 'var(--accent)'])].map(([k, l, i, col]) => `<button class="chip ${(d.group || '') === k ? 'on' : ''}" data-act="cgroup" data-k="${k}"><span class="ico" style="color:${col}">${ic(i)}</span>${l}</button>`).join('')}</div>
+      ${d.kind === 'var' && grp(d.group)?.limit > 0 ? '<div class="hint">Du chasch s Budget au leer laa: dänn zählt nur s Limit vom Ordner.</div>' : ''}</div>` : ''}
     <div class="field"><span>Symbol</span><div class="icon-grid">${CAT_ICONS.map(n => `<button class="${d.icon === n ? 'on' : ''}" data-act="cicon" data-n="${n}" aria-label="${n}">${ic(n)}</button>`).join('')}</div></div>
     <div class="field"><span>Farb</span><div class="swatches">${COLORS.map(col => `<button class="swatch ${d.color === col ? 'on' : ''}" style="background:${col}" data-act="ccolor" data-c="${col}" aria-label="Farb ${col}"></button>`).join('')}</div></div>
     <button class="btn" data-act="savecat">Speichere</button>
@@ -1247,6 +1314,20 @@ function sheetSimple(s) {
       <div class="field"><span>Farb</span><div class="swatches">${COLORS.map(col => `<button class="swatch ${d.color === col ? 'on' : ''}" style="background:${col}" data-act="pcolor" data-c="${col}" aria-label="Farb ${col}"></button>`).join('')}</div></div>
       <button class="btn" data-act="savepot">Speichere</button>
       ${s.id ? `<button class="btn danger ${s.armed ? 'armed' : ''}" data-act="delpot">${s.armed ? 'Sicher? S Gäld gaht zrugg is Hauptziel' : 'Sonderziel lösche'}</button>` : ''}`);
+  }
+  if (s.kind === 'grp') {
+    const d = s.draft, M = budgetMonth(0);
+    const plan = S.cats.filter(c => d.members.includes(c.id) && !(c.kind === 'var' && !(c.limit > 0))).reduce((t, c) => t + planEquiv(c, M), 0);
+    const noLim = S.cats.filter(c => d.members.includes(c.id) && c.kind === 'var' && !(c.limit > 0));
+    return sheetWrap(s.id ? 'Ordner bearbeite' : 'Neue Ordner', `
+      <label class="field"><span>Name</span><input id="g-gname" class="input" value="${esc(d.name)}" maxlength="24" placeholder="z.B. Usgabe"></label>
+      <label class="field"><span>Gmeinsams Limit in CHF pro Monet (freiwillig)</span><input id="g-limit" class="input num" inputmode="decimal" value="${d.limit === '' ? '' : d.limit}" placeholder="z.B. 1000"></label>
+      <div class="hint">${d.limit > 0 ? `Im Budget zählt für dä Ordner genau ${chf(d.limit)}, egal wie d Kategorie drin iiplant sind.${plan > d.limit + 0.5 ? ` <b style="color:var(--bad)">Achtung: Dini Kategorie drin sind scho mit ${chf(plan)} iiplant.</b>` : ''}` : 'Ohni Limit isch de Ordner nur zum Ordne, s Budget chunnt vo de Kategorie.'}</div>
+      <div class="field"><span>Kategorie im Ordner</span><div class="chips">${S.cats.map(c => { const o = inGroup(c); const other = o && o.id !== s.id && !d.members.includes(c.id); return `<button class="chip ${d.members.includes(c.id) ? 'on' : ''}" data-act="gmember" data-id="${c.id}"><span class="ico" style="color:${c.color}">${ic(c.icon)}</span>${esc(c.name)}${other ? ` <small class="sub">(${esc(o.name)})</small>` : ''}</button>`; }).join('')}</div>
+        ${noLim.length && !(d.limit > 0) ? `<div class="hint" style="color:var(--bad)">${noLim.map(c => esc(c.name)).join(', ')} het kei eiges Budget. Gib em Ordner es Limit.</div>` : ''}</div>
+      <div class="field"><span>Farb</span><div class="swatches">${COLORS.map(col => `<button class="swatch ${d.color === col ? 'on' : ''}" style="background:${col}" data-act="gcolor" data-c="${col}" aria-label="Farb ${col}"></button>`).join('')}</div></div>
+      <button class="btn" data-act="savegrp">Speichere</button>
+      ${s.id ? `<button class="btn danger ${s.armed ? 'armed' : ''}" data-act="delgrp">${s.armed ? 'Sicher? D Kategorie bliibed erhalte' : 'Ordner lösche'}</button>` : ''}`);
   }
   if (s.kind === 'catd') {
     const c = cat(s.id); if (!c) return '';
@@ -1414,6 +1495,7 @@ const backable = () => (UI.sheet && ['catd', 'recurs'].includes(UI.sheet.kind) ?
 function keepWishDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('w-name'); d.price = num('w-price') || ''; d.plan = num('w-plan') || ''; }
 function keepRecurDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('r-name'); const a = num('r-amount'); d.amount = isNaN(a) ? '' : a; d.start = val('r-start') || d.start; }
 // keep typed values when a sheet re-renders after a chip tap
+function keepGrpDraft() { const d = UI.sheet?.draft; if (!d || !document.getElementById('g-gname')) return; d.name = val('g-gname'); const l = num('g-limit'); d.limit = isNaN(l) ? '' : l; }
 function keepCatDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('c-name'); if (document.getElementById('c-auto')) d.autoDay = Number(val('c-auto')) || 0; const l = num('c-limit'); d.limit = isNaN(l) ? '' : l; }
 function keepPotDraft() { const d = UI.sheet?.draft; if (!d) return; d.name = val('p-name'); d.target = num('p-target') || ''; d.base = num('p-base') || ''; d.due = val('p-due'); const pc = num('p-pct'); d.pct = isNaN(pc) ? 0 : pc; }
 function keepEntryDraft() { const s = UI.sheet; s.amount = val('f-amount'); s.note = val('f-note'); s.date = val('f-date'); }
@@ -1561,6 +1643,26 @@ document.addEventListener('click', ev => {
     case 'newcat': UI.sheet = { type: 'cat', draft: { name: '', icon: 'dots', color: COLORS[S.cats.length % COLORS.length], kind: 'var', period: 'month', limit: '' } }; renderSheet(); break;
     case 'editcat': { const c = cat(el.dataset.id); UI.sheet = { type: 'cat', id: c.id, draft: { ...c }, back: backable() }; renderSheet(); break; }
     case 'ckind': keepCatDraft(); UI.sheet.draft.kind = el.dataset.k; if (el.dataset.k !== 'var') UI.sheet.draft.period = 'month'; renderSheet(); break;
+    case 'cgroup': keepCatDraft(); UI.sheet.draft.group = el.dataset.k; renderSheet(); break;
+    case 'grptoggle': { const sh = UI.grpShut || (UI.grpShut = []), i = sh.indexOf(el.dataset.id); if (i < 0) sh.push(el.dataset.id); else sh.splice(i, 1); render(); break; }
+    case 'newgrp': UI.sheet = { type: 'simple', kind: 'grp', draft: { name: '', limit: '', color: COLORS[groups().length % COLORS.length], members: [] } }; renderSheet(); break;
+    case 'editgrp': { const g = grp(el.dataset.id); UI.sheet = { type: 'simple', kind: 'grp', id: g.id, draft: { name: g.name, limit: g.limit || '', color: g.color, members: S.cats.filter(c => c.group === g.id).map(c => c.id) } }; renderSheet(); break; }
+    case 'gmember': { keepGrpDraft(); const m = UI.sheet.draft.members, i = m.indexOf(el.dataset.id); if (i < 0) m.push(el.dataset.id); else m.splice(i, 1); renderSheet(); break; }
+    case 'gcolor': keepGrpDraft(); UI.sheet.draft.color = el.dataset.c; renderSheet(); break;
+    case 'savegrp': {
+      keepGrpDraft(); const d = UI.sheet.draft;
+      if (!d.name) { toast('Bitte en Name iigä'); break; }
+      if (d.limit !== '' && !(d.limit >= 0)) { toast('Bitte e Zahl iigä'); break; }
+      let g = UI.sheet.id && grp(UI.sheet.id);
+      if (!g) { g = { id: uid() }; groups().push(g); }
+      Object.assign(g, { name: d.name, limit: d.limit === '' ? 0 : d.limit, color: d.color });
+      S.cats.forEach(c => { if (d.members.includes(c.id)) c.group = g.id; else if (c.group === g.id) c.group = ''; });
+      commit('Ordner gspeicheret'); break;
+    }
+    case 'delgrp':
+      if (!UI.sheet.armed) { keepGrpDraft(); UI.sheet.armed = true; renderSheet(); break; }
+      S.cats.forEach(c => { if (c.group === UI.sheet.id) c.group = ''; });
+      S.groups = groups().filter(g => g.id !== UI.sheet.id); commit('Ordner glöscht'); break;
     case 'cflex': keepCatDraft(); UI.sheet.draft.flex = el.dataset.k === '1'; renderSheet(); break;
     case 'cperiod': keepCatDraft(); UI.sheet.draft.period = el.dataset.k; renderSheet(); break;
     case 'cicon': keepCatDraft(); UI.sheet.draft.icon = el.dataset.n; renderSheet(); break;
@@ -1570,8 +1672,9 @@ document.addEventListener('click', ev => {
       if (!d.name) { toast('Bitte en Name iigä'); break; }
       const flex = d.kind !== 'var' && !!d.flex;
       if (flex && d.limit === '') d.limit = 0;
+      if (d.limit === '' && d.kind === 'var' && grp(d.group)?.limit > 0) d.limit = 0;
       if (!(d.limit >= 0) || d.limit === '') { toast('Bitte es Budget iigä'); break; }
-      const rec = { name: d.name, icon: d.icon, color: d.color, kind: d.kind, period: d.kind === 'var' ? d.period : 'month', limit: d.limit, flex, autoDay: d.kind === 'fix' && !flex ? (d.autoDay || 0) : 0 };
+      const rec = { name: d.name, icon: d.icon, color: d.color, kind: d.kind, period: d.kind === 'var' ? d.period : 'month', limit: d.limit, flex, autoDay: d.kind === 'fix' && !flex ? (d.autoDay || 0) : 0, group: grp(d.group) ? d.group : '' };
       if (UI.sheet.id) Object.assign(cat(UI.sheet.id), rec); else S.cats.push({ id: uid(), ...rec });
       commit('Gspeicheret'); break;
     }
